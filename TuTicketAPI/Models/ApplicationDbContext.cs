@@ -106,7 +106,8 @@ namespace TuTicketAPI.Models
                 entity.HasIndex(e => e.IdUsuario).HasDatabaseName("IX_EquipoSoporteUsuario_Usuario");
                 entity.HasIndex(e => new { e.IdEquipoSoporte, e.IdUsuario })
                     .IsUnique()
-                    .HasDatabaseName("UX_EquipoSoporteUsuario_Equipo_Usuario");
+                    .HasFilter("[Activo] = 1")
+                    .HasDatabaseName("UX_EquipoSoporteUsuario_Equipo_Usuario_Activo");
                 entity.HasOne(e => e.EquipoSoporte)
                     .WithMany(e => e.Usuarios)
                     .HasForeignKey(e => e.IdEquipoSoporte)
@@ -152,7 +153,8 @@ namespace TuTicketAPI.Models
                 entity.HasIndex(e => e.IdEquipoSoporte).HasDatabaseName("IX_CategoriaEquipoSoporte_Equipo");
                 entity.HasIndex(e => new { e.IdCategoriaTicket, e.IdEquipoSoporte })
                     .IsUnique()
-                    .HasDatabaseName("UX_CategoriaEquipoSoporte_Categoria_Equipo");
+                    .HasFilter("[Activo] = 1")
+                    .HasDatabaseName("UX_CategoriaEquipoSoporte_Categoria_Equipo_Activo");
                 entity.HasOne(e => e.CategoriaTicket)
                     .WithMany(e => e.EquiposSoporte)
                     .HasForeignKey(e => e.IdCategoriaTicket)
@@ -174,7 +176,8 @@ namespace TuTicketAPI.Models
                 entity.Property(e => e.Activo).HasDefaultValue(true);
                 entity.HasIndex(e => new { e.IdEstadoOrigen, e.IdEstadoDestino })
                     .IsUnique()
-                    .HasDatabaseName("UX_FlujoEstadoTicket_Origen_Destino");
+                    .HasFilter("[Activo] = 1")
+                    .HasDatabaseName("UX_FlujoEstadoTicket_Origen_Destino_Activo");
                 entity.HasOne(e => e.EstadoOrigen)
                     .WithMany(e => e.FlujosOrigen)
                     .HasForeignKey(e => e.IdEstadoOrigen)
