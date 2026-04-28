@@ -210,6 +210,16 @@ namespace TuTicketAPI.Models
                 });
                 entity.HasKey(e => e.IdSlaRegla);
                 entity.Property(e => e.Activo).HasDefaultValue(true);
+                entity.HasIndex(e => e.IdSlaPolitica)
+                    .HasDatabaseName("IX_SlaRegla_IdSlaPolitica");
+                entity.HasIndex(e => new { e.IdSlaPolitica, e.IdPrioridadTicket, e.IdCategoriaTicket })
+                    .IsUnique()
+                    .HasFilter("[Activo] = 1 AND [IdCategoriaTicket] IS NOT NULL")
+                    .HasDatabaseName("UX_SlaRegla_Politica_Prioridad_Categoria_Activo");
+                entity.HasIndex(e => new { e.IdSlaPolitica, e.IdPrioridadTicket })
+                    .IsUnique()
+                    .HasFilter("[Activo] = 1 AND [IdCategoriaTicket] IS NULL")
+                    .HasDatabaseName("UX_SlaRegla_Politica_Prioridad_Global_Activo");
                 entity.HasOne(e => e.SlaPolitica)
                     .WithMany(e => e.SlaReglas)
                     .HasForeignKey(e => e.IdSlaPolitica)

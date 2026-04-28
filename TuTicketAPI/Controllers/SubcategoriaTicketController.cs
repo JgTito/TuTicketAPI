@@ -1,6 +1,8 @@
 using AutoMapper;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using TuTicketAPI.Authorization;
 using TuTicketAPI.Dtos.SubcategoriaTicket;
 using TuTicketAPI.Models;
 
@@ -8,6 +10,7 @@ namespace TuTicketAPI.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize(Roles = AppRoles.Administrador)]
     public class SubcategoriaTicketController : ControllerBase
     {
         private readonly ApplicationDbContext _context;
@@ -68,11 +71,11 @@ namespace TuTicketAPI.Controllers
             Normalizar(request);
 
             var categoriaExiste = await _context.CategoriaTickets
-                .AnyAsync(c => c.IdCategoriaTicket == request.IdCategoriaTicket);
+                .AnyAsync(c => c.IdCategoriaTicket == request.IdCategoriaTicket && c.Activo);
 
             if (!categoriaExiste)
             {
-                ModelState.AddModelError(nameof(request.IdCategoriaTicket), "La categoria indicada no existe.");
+                ModelState.AddModelError(nameof(request.IdCategoriaTicket), "La categoria indicada no existe o esta inactiva.");
                 return ValidationProblem(ModelState);
             }
 
@@ -112,11 +115,11 @@ namespace TuTicketAPI.Controllers
             Normalizar(request);
 
             var categoriaExiste = await _context.CategoriaTickets
-                .AnyAsync(c => c.IdCategoriaTicket == request.IdCategoriaTicket);
+                .AnyAsync(c => c.IdCategoriaTicket == request.IdCategoriaTicket && c.Activo);
 
             if (!categoriaExiste)
             {
-                ModelState.AddModelError(nameof(request.IdCategoriaTicket), "La categoria indicada no existe.");
+                ModelState.AddModelError(nameof(request.IdCategoriaTicket), "La categoria indicada no existe o esta inactiva.");
                 return ValidationProblem(ModelState);
             }
 

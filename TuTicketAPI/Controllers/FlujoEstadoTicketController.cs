@@ -1,6 +1,8 @@
 using AutoMapper;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using TuTicketAPI.Authorization;
 using TuTicketAPI.Dtos.FlujoEstadoTicket;
 using TuTicketAPI.Models;
 
@@ -8,6 +10,7 @@ namespace TuTicketAPI.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize(Roles = AppRoles.Administrador)]
     public class FlujoEstadoTicketController : ControllerBase
     {
         private readonly ApplicationDbContext _context;
@@ -166,15 +169,15 @@ namespace TuTicketAPI.Controllers
                 return false;
             }
 
-            if (!await _context.EstadoTickets.AnyAsync(e => e.IdEstadoTicket == idEstadoOrigen))
+            if (!await _context.EstadoTickets.AnyAsync(e => e.IdEstadoTicket == idEstadoOrigen && e.Activo))
             {
-                ModelState.AddModelError(nameof(CrearFlujoEstadoTicketDto.IdEstadoOrigen), "El estado origen indicado no existe.");
+                ModelState.AddModelError(nameof(CrearFlujoEstadoTicketDto.IdEstadoOrigen), "El estado origen indicado no existe o esta inactivo.");
                 esValido = false;
             }
 
-            if (!await _context.EstadoTickets.AnyAsync(e => e.IdEstadoTicket == idEstadoDestino))
+            if (!await _context.EstadoTickets.AnyAsync(e => e.IdEstadoTicket == idEstadoDestino && e.Activo))
             {
-                ModelState.AddModelError(nameof(CrearFlujoEstadoTicketDto.IdEstadoDestino), "El estado destino indicado no existe.");
+                ModelState.AddModelError(nameof(CrearFlujoEstadoTicketDto.IdEstadoDestino), "El estado destino indicado no existe o esta inactivo.");
                 esValido = false;
             }
 

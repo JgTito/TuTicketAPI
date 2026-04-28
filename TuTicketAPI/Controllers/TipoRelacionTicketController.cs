@@ -1,6 +1,8 @@
 using AutoMapper;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using TuTicketAPI.Authorization;
 using TuTicketAPI.Dtos.TipoRelacionTicket;
 using TuTicketAPI.Models;
 
@@ -8,6 +10,7 @@ namespace TuTicketAPI.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize(Roles = AppRoles.Administrador)]
     public class TipoRelacionTicketController : ControllerBase
     {
         private readonly ApplicationDbContext _context;

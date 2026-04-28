@@ -1,6 +1,8 @@
 using AutoMapper;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using TuTicketAPI.Authorization;
 using TuTicketAPI.Dtos.SlaRegla;
 using TuTicketAPI.Models;
 
@@ -8,6 +10,7 @@ namespace TuTicketAPI.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize(Roles = AppRoles.Administrador)]
     public class SlaReglaController : ControllerBase
     {
         private readonly ApplicationDbContext _context;
@@ -146,22 +149,22 @@ namespace TuTicketAPI.Controllers
         {
             var esValido = true;
 
-            if (!await _context.SlaPoliticas.AnyAsync(s => s.IdSlaPolitica == request.IdSlaPolitica))
+            if (!await _context.SlaPoliticas.AnyAsync(s => s.IdSlaPolitica == request.IdSlaPolitica && s.Activo))
             {
-                ModelState.AddModelError(nameof(request.IdSlaPolitica), "La politica SLA indicada no existe.");
+                ModelState.AddModelError(nameof(request.IdSlaPolitica), "La politica SLA indicada no existe o esta inactiva.");
                 esValido = false;
             }
 
-            if (!await _context.PrioridadTickets.AnyAsync(p => p.IdPrioridadTicket == request.IdPrioridadTicket))
+            if (!await _context.PrioridadTickets.AnyAsync(p => p.IdPrioridadTicket == request.IdPrioridadTicket && p.Activo))
             {
-                ModelState.AddModelError(nameof(request.IdPrioridadTicket), "La prioridad indicada no existe.");
+                ModelState.AddModelError(nameof(request.IdPrioridadTicket), "La prioridad indicada no existe o esta inactiva.");
                 esValido = false;
             }
 
             if (request.IdCategoriaTicket.HasValue &&
-                !await _context.CategoriaTickets.AnyAsync(c => c.IdCategoriaTicket == request.IdCategoriaTicket.Value))
+                !await _context.CategoriaTickets.AnyAsync(c => c.IdCategoriaTicket == request.IdCategoriaTicket.Value && c.Activo))
             {
-                ModelState.AddModelError(nameof(request.IdCategoriaTicket), "La categoria indicada no existe.");
+                ModelState.AddModelError(nameof(request.IdCategoriaTicket), "La categoria indicada no existe o esta inactiva.");
                 esValido = false;
             }
 
@@ -172,22 +175,22 @@ namespace TuTicketAPI.Controllers
         {
             var esValido = true;
 
-            if (!await _context.SlaPoliticas.AnyAsync(s => s.IdSlaPolitica == request.IdSlaPolitica))
+            if (!await _context.SlaPoliticas.AnyAsync(s => s.IdSlaPolitica == request.IdSlaPolitica && s.Activo))
             {
-                ModelState.AddModelError(nameof(request.IdSlaPolitica), "La politica SLA indicada no existe.");
+                ModelState.AddModelError(nameof(request.IdSlaPolitica), "La politica SLA indicada no existe o esta inactiva.");
                 esValido = false;
             }
 
-            if (!await _context.PrioridadTickets.AnyAsync(p => p.IdPrioridadTicket == request.IdPrioridadTicket))
+            if (!await _context.PrioridadTickets.AnyAsync(p => p.IdPrioridadTicket == request.IdPrioridadTicket && p.Activo))
             {
-                ModelState.AddModelError(nameof(request.IdPrioridadTicket), "La prioridad indicada no existe.");
+                ModelState.AddModelError(nameof(request.IdPrioridadTicket), "La prioridad indicada no existe o esta inactiva.");
                 esValido = false;
             }
 
             if (request.IdCategoriaTicket.HasValue &&
-                !await _context.CategoriaTickets.AnyAsync(c => c.IdCategoriaTicket == request.IdCategoriaTicket.Value))
+                !await _context.CategoriaTickets.AnyAsync(c => c.IdCategoriaTicket == request.IdCategoriaTicket.Value && c.Activo))
             {
-                ModelState.AddModelError(nameof(request.IdCategoriaTicket), "La categoria indicada no existe.");
+                ModelState.AddModelError(nameof(request.IdCategoriaTicket), "La categoria indicada no existe o esta inactiva.");
                 esValido = false;
             }
 
