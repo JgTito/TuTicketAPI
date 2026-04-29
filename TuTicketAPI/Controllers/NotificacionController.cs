@@ -2,9 +2,9 @@ using AutoMapper;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using TuTicketAPI.Authorization;
 using TuTicketAPI.Dtos.Notificacion;
 using TuTicketAPI.Models;
+using TuTicketAPI.Services.Common;
 
 namespace TuTicketAPI.Controllers
 {
@@ -15,11 +15,19 @@ namespace TuTicketAPI.Controllers
     {
         private readonly ApplicationDbContext _context;
         private readonly IMapper _mapper;
+        private readonly ICurrentUserService _currentUserService;
+        private readonly IReferenceValidationService _referenceValidationService;
 
-        public NotificacionController(ApplicationDbContext context, IMapper mapper)
+        public NotificacionController(
+            ApplicationDbContext context,
+            IMapper mapper,
+            ICurrentUserService currentUserService,
+            IReferenceValidationService referenceValidationService)
         {
             _context = context;
             _mapper = mapper;
+            _currentUserService = currentUserService;
+            _referenceValidationService = referenceValidationService;
         }
 
         [HttpGet]
@@ -140,7 +148,7 @@ namespace TuTicketAPI.Controllers
 
             if (EsSolicitanteSinPrivilegios())
             {
-                var idUsuarioActual = ObtenerIdUsuarioAutenticado();
+                var idUsuarioActual = _currentUserService.IdUsuario;
 
                 if (idUsuarioActual is null || usuario != idUsuarioActual)
                 {
@@ -148,7 +156,7 @@ namespace TuTicketAPI.Controllers
                 }
             }
 
-            if (!await _context.Users.AnyAsync(u => u.Id == usuario && u.Activo))
+            if (!await _referenceValidationService.UsuarioActivoExiste(usuario))
             {
                 ModelState.AddModelError(nameof(idUsuarioDestino), "El usuario destino no existe o esta inactivo.");
                 return ValidationProblem(ModelState);
@@ -173,14 +181,14 @@ namespace TuTicketAPI.Controllers
         {
             var esValido = true;
 
-            if (!await _context.Users.AnyAsync(u => u.Id == request.IdUsuarioDestino && u.Activo))
+            if (!await _referenceValidationService.UsuarioActivoExiste(request.IdUsuarioDestino))
             {
                 ModelState.AddModelError(nameof(request.IdUsuarioDestino), "El usuario destino no existe o esta inactivo.");
                 esValido = false;
             }
 
             if (request.IdTicket.HasValue &&
-                !await _context.Tickets.AnyAsync(t => t.IdTicket == request.IdTicket.Value && t.Activo))
+                !await _referenceValidationService.TicketActivoExiste(request.IdTicket.Value))
             {
                 ModelState.AddModelError(nameof(request.IdTicket), "El ticket indicado no existe o esta inactivo.");
                 esValido = false;
@@ -198,9 +206,9 @@ namespace TuTicketAPI.Controllers
 
         private IQueryable<Notificacion> AplicarFiltroSolicitante(IQueryable<Notificacion> query)
         {
-            var idUsuario = ObtenerIdUsuarioAutenticado();
+            var idUsuario = _currentUserService.IdUsuario;
 
-            if (User.IsInRole(AppRoles.Administrador) || User.IsInRole(AppRoles.ResolvedorTicket))
+            if (_currentUserService.EsAdministrador || _currentUserService.EsResolvedorSinAdministrador)
             {
                 return query;
             }
@@ -219,7 +227,7 @@ namespace TuTicketAPI.Controllers
 
         private bool PuedeVerNotificacion(Notificacion notificacion)
         {
-            var idUsuario = ObtenerIdUsuarioAutenticado();
+            var idUsuario = _currentUserService.IdUsuario;
 
             return !EsSolicitanteSinPrivilegios() ||
                 (idUsuario is not null && notificacion.IdUsuarioDestino == idUsuario);
@@ -227,9 +235,7 @@ namespace TuTicketAPI.Controllers
 
         private bool EsSolicitanteSinPrivilegios()
         {
-            return User.IsInRole(AppRoles.Solicitante) &&
-                !User.IsInRole(AppRoles.Administrador) &&
-                !User.IsInRole(AppRoles.ResolvedorTicket);
+            return _currentUserService.EsSolicitanteSinPrivilegios;
         }
     }
 }

@@ -6,6 +6,7 @@ using TuTicketAPI.Authorization;
 using TuTicketAPI.Dtos.Comun;
 using TuTicketAPI.Dtos.EquipoSoporteUsuario;
 using TuTicketAPI.Models;
+using TuTicketAPI.Services.Common;
 
 namespace TuTicketAPI.Controllers
 {
@@ -16,11 +17,13 @@ namespace TuTicketAPI.Controllers
     {
         private readonly ApplicationDbContext _context;
         private readonly IMapper _mapper;
+        private readonly IReferenceValidationService _referenceValidationService;
 
-        public EquipoSoporteUsuarioController(ApplicationDbContext context, IMapper mapper)
+        public EquipoSoporteUsuarioController(ApplicationDbContext context, IMapper mapper, IReferenceValidationService referenceValidationService)
         {
             _context = context;
             _mapper = mapper;
+            _referenceValidationService = referenceValidationService;
         }
 
         [HttpGet]
@@ -183,13 +186,13 @@ namespace TuTicketAPI.Controllers
         {
             var esValido = true;
 
-            if (!await _context.EquipoSoportes.AnyAsync(e => e.IdEquipoSoporte == request.IdEquipoSoporte && e.Activo))
+            if (!await _referenceValidationService.EquipoSoporteActivoExiste(request.IdEquipoSoporte))
             {
                 ModelState.AddModelError(nameof(request.IdEquipoSoporte), "El equipo de soporte indicado no existe o esta inactivo.");
                 esValido = false;
             }
 
-            if (!await _context.Users.AnyAsync(u => u.Id == request.IdUsuario && u.Activo))
+            if (!await _referenceValidationService.UsuarioActivoExiste(request.IdUsuario))
             {
                 ModelState.AddModelError(nameof(request.IdUsuario), "El usuario indicado no existe o esta inactivo.");
                 esValido = false;
@@ -202,13 +205,13 @@ namespace TuTicketAPI.Controllers
         {
             var esValido = true;
 
-            if (!await _context.EquipoSoportes.AnyAsync(e => e.IdEquipoSoporte == request.IdEquipoSoporte && e.Activo))
+            if (!await _referenceValidationService.EquipoSoporteActivoExiste(request.IdEquipoSoporte))
             {
                 ModelState.AddModelError(nameof(request.IdEquipoSoporte), "El equipo de soporte indicado no existe o esta inactivo.");
                 esValido = false;
             }
 
-            if (!await _context.Users.AnyAsync(u => u.Id == request.IdUsuario && u.Activo))
+            if (!await _referenceValidationService.UsuarioActivoExiste(request.IdUsuario))
             {
                 ModelState.AddModelError(nameof(request.IdUsuario), "El usuario indicado no existe o esta inactivo.");
                 esValido = false;

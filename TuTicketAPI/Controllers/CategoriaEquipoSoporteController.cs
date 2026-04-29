@@ -6,6 +6,7 @@ using TuTicketAPI.Authorization;
 using TuTicketAPI.Dtos.CategoriaEquipoSoporte;
 using TuTicketAPI.Dtos.Comun;
 using TuTicketAPI.Models;
+using TuTicketAPI.Services.Common;
 
 namespace TuTicketAPI.Controllers
 {
@@ -16,11 +17,13 @@ namespace TuTicketAPI.Controllers
     {
         private readonly ApplicationDbContext _context;
         private readonly IMapper _mapper;
+        private readonly IReferenceValidationService _referenceValidationService;
 
-        public CategoriaEquipoSoporteController(ApplicationDbContext context, IMapper mapper)
+        public CategoriaEquipoSoporteController(ApplicationDbContext context, IMapper mapper, IReferenceValidationService referenceValidationService)
         {
             _context = context;
             _mapper = mapper;
+            _referenceValidationService = referenceValidationService;
         }
 
         [HttpGet]
@@ -171,13 +174,13 @@ namespace TuTicketAPI.Controllers
         {
             var esValido = true;
 
-            if (!await _context.CategoriaTickets.AnyAsync(c => c.IdCategoriaTicket == request.IdCategoriaTicket && c.Activo))
+            if (!await _referenceValidationService.CategoriaActivaExiste(request.IdCategoriaTicket))
             {
                 ModelState.AddModelError(nameof(request.IdCategoriaTicket), "La categoria indicada no existe o esta inactiva.");
                 esValido = false;
             }
 
-            if (!await _context.EquipoSoportes.AnyAsync(e => e.IdEquipoSoporte == request.IdEquipoSoporte && e.Activo))
+            if (!await _referenceValidationService.EquipoSoporteActivoExiste(request.IdEquipoSoporte))
             {
                 ModelState.AddModelError(nameof(request.IdEquipoSoporte), "El equipo de soporte indicado no existe o esta inactivo.");
                 esValido = false;
@@ -190,13 +193,13 @@ namespace TuTicketAPI.Controllers
         {
             var esValido = true;
 
-            if (!await _context.CategoriaTickets.AnyAsync(c => c.IdCategoriaTicket == request.IdCategoriaTicket && c.Activo))
+            if (!await _referenceValidationService.CategoriaActivaExiste(request.IdCategoriaTicket))
             {
                 ModelState.AddModelError(nameof(request.IdCategoriaTicket), "La categoria indicada no existe o esta inactiva.");
                 esValido = false;
             }
 
-            if (!await _context.EquipoSoportes.AnyAsync(e => e.IdEquipoSoporte == request.IdEquipoSoporte && e.Activo))
+            if (!await _referenceValidationService.EquipoSoporteActivoExiste(request.IdEquipoSoporte))
             {
                 ModelState.AddModelError(nameof(request.IdEquipoSoporte), "El equipo de soporte indicado no existe o esta inactivo.");
                 esValido = false;

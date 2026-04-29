@@ -6,6 +6,7 @@ using TuTicketAPI.Authorization;
 using TuTicketAPI.Dtos.Comun;
 using TuTicketAPI.Dtos.SlaRegla;
 using TuTicketAPI.Models;
+using TuTicketAPI.Services.Common;
 
 namespace TuTicketAPI.Controllers
 {
@@ -16,11 +17,16 @@ namespace TuTicketAPI.Controllers
     {
         private readonly ApplicationDbContext _context;
         private readonly IMapper _mapper;
+        private readonly IReferenceValidationService _referenceValidationService;
 
-        public SlaReglaController(ApplicationDbContext context, IMapper mapper)
+        public SlaReglaController(
+            ApplicationDbContext context,
+            IMapper mapper,
+            IReferenceValidationService referenceValidationService)
         {
             _context = context;
             _mapper = mapper;
+            _referenceValidationService = referenceValidationService;
         }
 
         [HttpGet]
@@ -168,20 +174,20 @@ namespace TuTicketAPI.Controllers
         {
             var esValido = true;
 
-            if (!await _context.SlaPoliticas.AnyAsync(s => s.IdSlaPolitica == request.IdSlaPolitica && s.Activo))
+            if (!await _referenceValidationService.SlaPoliticaActivaExiste(request.IdSlaPolitica))
             {
                 ModelState.AddModelError(nameof(request.IdSlaPolitica), "La politica SLA indicada no existe o esta inactiva.");
                 esValido = false;
             }
 
-            if (!await _context.PrioridadTickets.AnyAsync(p => p.IdPrioridadTicket == request.IdPrioridadTicket && p.Activo))
+            if (!await _referenceValidationService.PrioridadActivaExiste(request.IdPrioridadTicket))
             {
                 ModelState.AddModelError(nameof(request.IdPrioridadTicket), "La prioridad indicada no existe o esta inactiva.");
                 esValido = false;
             }
 
             if (request.IdCategoriaTicket.HasValue &&
-                !await _context.CategoriaTickets.AnyAsync(c => c.IdCategoriaTicket == request.IdCategoriaTicket.Value && c.Activo))
+                !await _referenceValidationService.CategoriaActivaExiste(request.IdCategoriaTicket.Value))
             {
                 ModelState.AddModelError(nameof(request.IdCategoriaTicket), "La categoria indicada no existe o esta inactiva.");
                 esValido = false;
@@ -194,20 +200,20 @@ namespace TuTicketAPI.Controllers
         {
             var esValido = true;
 
-            if (!await _context.SlaPoliticas.AnyAsync(s => s.IdSlaPolitica == request.IdSlaPolitica && s.Activo))
+            if (!await _referenceValidationService.SlaPoliticaActivaExiste(request.IdSlaPolitica))
             {
                 ModelState.AddModelError(nameof(request.IdSlaPolitica), "La politica SLA indicada no existe o esta inactiva.");
                 esValido = false;
             }
 
-            if (!await _context.PrioridadTickets.AnyAsync(p => p.IdPrioridadTicket == request.IdPrioridadTicket && p.Activo))
+            if (!await _referenceValidationService.PrioridadActivaExiste(request.IdPrioridadTicket))
             {
                 ModelState.AddModelError(nameof(request.IdPrioridadTicket), "La prioridad indicada no existe o esta inactiva.");
                 esValido = false;
             }
 
             if (request.IdCategoriaTicket.HasValue &&
-                !await _context.CategoriaTickets.AnyAsync(c => c.IdCategoriaTicket == request.IdCategoriaTicket.Value && c.Activo))
+                !await _referenceValidationService.CategoriaActivaExiste(request.IdCategoriaTicket.Value))
             {
                 ModelState.AddModelError(nameof(request.IdCategoriaTicket), "La categoria indicada no existe o esta inactiva.");
                 esValido = false;

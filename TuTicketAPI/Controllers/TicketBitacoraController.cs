@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using TuTicketAPI.Dtos.Comun;
 using TuTicketAPI.Dtos.TicketBitacora;
 using TuTicketAPI.Models;
+using TuTicketAPI.Services.Common;
 using TuTicketAPI.Services.Tickets;
 
 namespace TuTicketAPI.Controllers
@@ -17,12 +18,14 @@ namespace TuTicketAPI.Controllers
         private readonly ApplicationDbContext _context;
         private readonly IMapper _mapper;
         private readonly ITicketAccessService _ticketAccessService;
+        private readonly IReferenceValidationService _referenceValidationService;
 
-        public TicketBitacoraController(ApplicationDbContext context, IMapper mapper, ITicketAccessService ticketAccessService)
+        public TicketBitacoraController(ApplicationDbContext context, IMapper mapper, ITicketAccessService ticketAccessService, IReferenceValidationService referenceValidationService)
         {
             _context = context;
             _mapper = mapper;
             _ticketAccessService = ticketAccessService;
+            _referenceValidationService = referenceValidationService;
         }
 
         [HttpGet("/api/Ticket/{idTicket:int}/bitacora")]
@@ -107,13 +110,13 @@ namespace TuTicketAPI.Controllers
                 return Forbid();
             }
 
-            if (!await _context.Tickets.AnyAsync(t => t.IdTicket == idTicket && t.Activo))
+            if (!await _referenceValidationService.TicketActivoExiste(idTicket))
             {
                 ModelState.AddModelError(nameof(idTicket), "El ticket indicado no existe o esta inactivo.");
                 return ValidationProblem(ModelState);
             }
 
-            if (!await _context.Users.AnyAsync(u => u.Id == request.IdUsuarioCreacion && u.Activo))
+            if (!await _referenceValidationService.UsuarioActivoExiste(request.IdUsuarioCreacion))
             {
                 ModelState.AddModelError(nameof(request.IdUsuarioCreacion), "El usuario indicado no existe o esta inactivo.");
                 return ValidationProblem(ModelState);

@@ -9,6 +9,7 @@ using TuTicketAPI.Dtos.Ticket;
 using TuTicketAPI.Dtos.TicketHistorial;
 using TuTicketAPI.Enums;
 using TuTicketAPI.Models;
+using TuTicketAPI.Services.Common;
 using TuTicketAPI.Services.Tickets;
 
 namespace TuTicketAPI.Controllers
@@ -21,17 +22,28 @@ namespace TuTicketAPI.Controllers
        
         private readonly ApplicationDbContext _context;
         private readonly IMapper _mapper;
+        private readonly ICurrentUserService _currentUserService;
         private readonly ITicketAccessService _ticketAccessService;
         private readonly ITicketAttachmentService _ticketAttachmentService;
         private readonly ITicketHistoryService _ticketHistoryService;
+        private readonly IReferenceValidationService _referenceValidationService;
 
-        public TicketController(ApplicationDbContext context, IMapper mapper, ITicketAccessService ticketAccessService, ITicketAttachmentService ticketAttachmentService, ITicketHistoryService ticketHistoryService)
+        public TicketController(
+            ApplicationDbContext context,
+            IMapper mapper,
+            ICurrentUserService currentUserService,
+            ITicketAccessService ticketAccessService,
+            ITicketAttachmentService ticketAttachmentService,
+            ITicketHistoryService ticketHistoryService,
+            IReferenceValidationService referenceValidationService)
         {
             _context = context;
             _mapper = mapper;
+            _currentUserService = currentUserService;
             _ticketAccessService = ticketAccessService;
             _ticketAttachmentService = ticketAttachmentService;
             _ticketHistoryService = ticketHistoryService;
+            _referenceValidationService = referenceValidationService;
         }
 
         [HttpGet]
@@ -299,7 +311,7 @@ namespace TuTicketAPI.Controllers
         {
             Normalizar(request);
 
-            var idUsuarioSolicitante = ObtenerIdUsuarioAutenticado();
+            var idUsuarioSolicitante = _currentUserService.IdUsuario;
 
             if (idUsuarioSolicitante is null)
             {
@@ -465,7 +477,7 @@ namespace TuTicketAPI.Controllers
 
             Normalizar(request);
 
-            var idUsuarioModificacion = ObtenerIdUsuarioAutenticado();
+            var idUsuarioModificacion = _currentUserService.IdUsuario;
 
             if (idUsuarioModificacion is null)
             {
@@ -678,13 +690,13 @@ namespace TuTicketAPI.Controllers
         {
             var esValido = true;
 
-            if (!await _context.PrioridadTickets.AnyAsync(p => p.IdPrioridadTicket == request.IdPrioridadTicket && p.Activo))
+            if (!await _referenceValidationService.PrioridadActivaExiste(request.IdPrioridadTicket))
             {
                 ModelState.AddModelError(nameof(request.IdPrioridadTicket), "La prioridad indicada no existe o esta inactiva.");
                 esValido = false;
             }
 
-            if (!await _context.SubcategoriaTickets.AnyAsync(s => s.IdSubcategoriaTicket == request.IdSubcategoriaTicket && s.Activo && s.CategoriaTicket.Activo))
+            if (!await _referenceValidationService.SubcategoriaActivaExiste(request.IdSubcategoriaTicket))
             {
                 ModelState.AddModelError(nameof(request.IdSubcategoriaTicket), "La subcategoria indicada no existe o esta inactiva.");
                 esValido = false;
@@ -705,13 +717,13 @@ namespace TuTicketAPI.Controllers
         {
             var esValido = true;
 
-            if (!await _context.PrioridadTickets.AnyAsync(p => p.IdPrioridadTicket == request.IdPrioridadTicket && p.Activo))
+            if (!await _referenceValidationService.PrioridadActivaExiste(request.IdPrioridadTicket))
             {
                 ModelState.AddModelError(nameof(request.IdPrioridadTicket), "La prioridad indicada no existe o esta inactiva.");
                 esValido = false;
             }
 
-            if (!await _context.SubcategoriaTickets.AnyAsync(s => s.IdSubcategoriaTicket == request.IdSubcategoriaTicket && s.Activo && s.CategoriaTicket.Activo))
+            if (!await _referenceValidationService.SubcategoriaActivaExiste(request.IdSubcategoriaTicket))
             {
                 ModelState.AddModelError(nameof(request.IdSubcategoriaTicket), "La subcategoria indicada no existe o esta inactiva.");
                 esValido = false;
@@ -733,8 +745,7 @@ namespace TuTicketAPI.Controllers
 
         private async Task<bool> UsuarioActivoExiste(string idUsuario, string campo)
         {
-            if (string.IsNullOrWhiteSpace(idUsuario) ||
-                !await _context.Users.AnyAsync(u => u.Id == idUsuario && u.Activo))
+            if (!await _referenceValidationService.UsuarioActivoExiste(idUsuario))
             {
                 ModelState.AddModelError(campo, "El usuario indicado no existe o esta inactivo.");
                 return false;

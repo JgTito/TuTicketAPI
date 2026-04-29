@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TuTicketAPI.Dtos.TicketSla;
 using TuTicketAPI.Models;
+using TuTicketAPI.Services.Common;
 using TuTicketAPI.Services.Tickets;
 
 namespace TuTicketAPI.Controllers
@@ -16,12 +17,14 @@ namespace TuTicketAPI.Controllers
         private readonly ApplicationDbContext _context;
         private readonly IMapper _mapper;
         private readonly ITicketAccessService _ticketAccessService;
+        private readonly IReferenceValidationService _referenceValidationService;
 
-        public TicketSlaController(ApplicationDbContext context, IMapper mapper, ITicketAccessService ticketAccessService)
+        public TicketSlaController(ApplicationDbContext context, IMapper mapper, ITicketAccessService ticketAccessService, IReferenceValidationService referenceValidationService)
         {
             _context = context;
             _mapper = mapper;
             _ticketAccessService = ticketAccessService;
+            _referenceValidationService = referenceValidationService;
         }
 
         [HttpGet("/api/Ticket/{idTicket:int}/sla")]
@@ -204,8 +207,7 @@ namespace TuTicketAPI.Controllers
 
         private async Task<bool> UsuarioActivoExiste(string idUsuario, string campo)
         {
-            if (string.IsNullOrWhiteSpace(idUsuario) ||
-                !await _context.Users.AnyAsync(u => u.Id == idUsuario && u.Activo))
+            if (!await _referenceValidationService.UsuarioActivoExiste(idUsuario))
             {
                 ModelState.AddModelError(campo, "El usuario indicado no existe o esta inactivo.");
                 return false;

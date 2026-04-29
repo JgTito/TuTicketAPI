@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using TuTicketAPI.Models;
+using TuTicketAPI.Services.Common;
 using TuTicketAPI.Services.Tickets;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -64,9 +65,11 @@ builder.Services.AddAuthorization();
 
 builder.Services.AddAutoMapper(_ => { }, typeof(Program).Assembly);
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
 builder.Services.AddScoped<ITicketAccessService, TicketAccessService>();
 builder.Services.AddScoped<ITicketAttachmentService, TicketAttachmentService>();
 builder.Services.AddScoped<ITicketHistoryService, TicketHistoryService>();
+builder.Services.AddScoped<IReferenceValidationService, ReferenceValidationService>();
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();

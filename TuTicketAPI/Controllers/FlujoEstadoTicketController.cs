@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using TuTicketAPI.Authorization;
 using TuTicketAPI.Dtos.FlujoEstadoTicket;
 using TuTicketAPI.Models;
+using TuTicketAPI.Services.Common;
 
 namespace TuTicketAPI.Controllers
 {
@@ -15,11 +16,16 @@ namespace TuTicketAPI.Controllers
     {
         private readonly ApplicationDbContext _context;
         private readonly IMapper _mapper;
+        private readonly IReferenceValidationService _referenceValidationService;
 
-        public FlujoEstadoTicketController(ApplicationDbContext context, IMapper mapper)
+        public FlujoEstadoTicketController(
+            ApplicationDbContext context,
+            IMapper mapper,
+            IReferenceValidationService referenceValidationService)
         {
             _context = context;
             _mapper = mapper;
+            _referenceValidationService = referenceValidationService;
         }
 
         [HttpGet]
@@ -169,13 +175,13 @@ namespace TuTicketAPI.Controllers
                 return false;
             }
 
-            if (!await _context.EstadoTickets.AnyAsync(e => e.IdEstadoTicket == idEstadoOrigen && e.Activo))
+            if (!await _referenceValidationService.EstadoTicketActivoExiste(idEstadoOrigen))
             {
                 ModelState.AddModelError(nameof(CrearFlujoEstadoTicketDto.IdEstadoOrigen), "El estado origen indicado no existe o esta inactivo.");
                 esValido = false;
             }
 
-            if (!await _context.EstadoTickets.AnyAsync(e => e.IdEstadoTicket == idEstadoDestino && e.Activo))
+            if (!await _referenceValidationService.EstadoTicketActivoExiste(idEstadoDestino))
             {
                 ModelState.AddModelError(nameof(CrearFlujoEstadoTicketDto.IdEstadoDestino), "El estado destino indicado no existe o esta inactivo.");
                 esValido = false;

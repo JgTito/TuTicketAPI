@@ -1,27 +1,25 @@
-using System.Security.Claims;
-using TuTicketAPI.Authorization;
 using TuTicketAPI.Models;
 using Microsoft.EntityFrameworkCore;
+using TuTicketAPI.Services.Common;
 
 namespace TuTicketAPI.Services.Tickets
 {
     public class TicketAccessService : ITicketAccessService
     {
         private readonly ApplicationDbContext _context;
-        private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly ICurrentUserService _currentUserService;
 
-        public TicketAccessService(ApplicationDbContext context, IHttpContextAccessor httpContextAccessor)
+        public TicketAccessService(ApplicationDbContext context, ICurrentUserService currentUserService)
         {
             _context = context;
-            _httpContextAccessor = httpContextAccessor;
+            _currentUserService = currentUserService;
         }
 
         public IQueryable<Ticket> AplicarFiltroAcceso(IQueryable<Ticket> query)
         {
-            var user = _httpContextAccessor.HttpContext?.User;
-            var idUsuario = ObtenerIdUsuarioAutenticado();
+            var idUsuario = _currentUserService.IdUsuario;
 
-            if (user?.IsInRole(AppRoles.Administrador) == true)
+            if (_currentUserService.EsAdministrador)
             {
                 return query;
             }
@@ -31,12 +29,12 @@ namespace TuTicketAPI.Services.Tickets
                 return query.Where(t => false);
             }
 
-            if (EsSolicitanteSinPrivilegios())
+            if (_currentUserService.EsSolicitanteSinPrivilegios)
             {
                 return query.Where(t => t.IdUsuarioSolicitante == idUsuario);
             }
 
-            if (EsResolvedorSinAdministrador())
+            if (_currentUserService.EsResolvedorSinAdministrador)
             {
                 return query.Where(t =>
                     t.IdUsuarioAsignado == idUsuario ||
@@ -54,10 +52,9 @@ namespace TuTicketAPI.Services.Tickets
 
         public IQueryable<TicketSla> AplicarFiltroAcceso(IQueryable<TicketSla> query)
         {
-            var user = _httpContextAccessor.HttpContext?.User;
-            var idUsuario = ObtenerIdUsuarioAutenticado();
+            var idUsuario = _currentUserService.IdUsuario;
 
-            if (user?.IsInRole(AppRoles.Administrador) == true)
+            if (_currentUserService.EsAdministrador)
             {
                 return query;
             }
@@ -67,12 +64,12 @@ namespace TuTicketAPI.Services.Tickets
                 return query.Where(s => false);
             }
 
-            if (EsSolicitanteSinPrivilegios())
+            if (_currentUserService.EsSolicitanteSinPrivilegios)
             {
                 return query.Where(s => s.Ticket.IdUsuarioSolicitante == idUsuario);
             }
 
-            if (EsResolvedorSinAdministrador())
+            if (_currentUserService.EsResolvedorSinAdministrador)
             {
                 return query.Where(s =>
                     s.Ticket.IdUsuarioAsignado == idUsuario ||
@@ -97,28 +94,6 @@ namespace TuTicketAPI.Services.Tickets
         public Task<bool> PuedeVerTicket(Ticket ticket)
         {
             return PuedeVerTicket(ticket.IdTicket);
-        }
-
-        private string? ObtenerIdUsuarioAutenticado()
-        {
-            return _httpContextAccessor.HttpContext?.User.FindFirstValue(ClaimTypes.NameIdentifier);
-        }
-
-        private bool EsSolicitanteSinPrivilegios()
-        {
-            var user = _httpContextAccessor.HttpContext?.User;
-
-            return user?.IsInRole(AppRoles.Solicitante) == true &&
-                user.IsInRole(AppRoles.Administrador) == false &&
-                user.IsInRole(AppRoles.ResolvedorTicket) == false;
-        }
-
-        private bool EsResolvedorSinAdministrador()
-        {
-            var user = _httpContextAccessor.HttpContext?.User;
-
-            return user?.IsInRole(AppRoles.ResolvedorTicket) == true &&
-                user.IsInRole(AppRoles.Administrador) == false;
         }
     }
 }

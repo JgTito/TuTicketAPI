@@ -6,6 +6,7 @@ using TuTicketAPI.Authorization;
 using TuTicketAPI.Dtos.CategoriaResponsable;
 using TuTicketAPI.Dtos.Comun;
 using TuTicketAPI.Models;
+using TuTicketAPI.Services.Common;
 
 namespace TuTicketAPI.Controllers
 {
@@ -16,11 +17,13 @@ namespace TuTicketAPI.Controllers
     {
         private readonly ApplicationDbContext _context;
         private readonly IMapper _mapper;
+        private readonly IReferenceValidationService _referenceValidationService;
 
-        public CategoriaResponsableController(ApplicationDbContext context, IMapper mapper)
+        public CategoriaResponsableController(ApplicationDbContext context, IMapper mapper, IReferenceValidationService referenceValidationService)
         {
             _context = context;
             _mapper = mapper;
+            _referenceValidationService = referenceValidationService;
         }
 
         [HttpGet]
@@ -176,13 +179,13 @@ namespace TuTicketAPI.Controllers
         {
             var esValido = true;
 
-            if (!await _context.CategoriaTickets.AnyAsync(c => c.IdCategoriaTicket == request.IdCategoriaTicket && c.Activo))
+            if (!await _referenceValidationService.CategoriaActivaExiste(request.IdCategoriaTicket))
             {
                 ModelState.AddModelError(nameof(request.IdCategoriaTicket), "La categoria indicada no existe o esta inactiva.");
                 esValido = false;
             }
 
-            if (!await _context.Users.AnyAsync(u => u.Id == request.IdUsuarioResponsable && u.Activo))
+            if (!await _referenceValidationService.UsuarioActivoExiste(request.IdUsuarioResponsable))
             {
                 ModelState.AddModelError(nameof(request.IdUsuarioResponsable), "El usuario responsable indicado no existe o esta inactivo.");
                 esValido = false;
@@ -195,13 +198,13 @@ namespace TuTicketAPI.Controllers
         {
             var esValido = true;
 
-            if (!await _context.CategoriaTickets.AnyAsync(c => c.IdCategoriaTicket == request.IdCategoriaTicket && c.Activo))
+            if (!await _referenceValidationService.CategoriaActivaExiste(request.IdCategoriaTicket))
             {
                 ModelState.AddModelError(nameof(request.IdCategoriaTicket), "La categoria indicada no existe o esta inactiva.");
                 esValido = false;
             }
 
-            if (!await _context.Users.AnyAsync(u => u.Id == request.IdUsuarioResponsable && u.Activo))
+            if (!await _referenceValidationService.UsuarioActivoExiste(request.IdUsuarioResponsable))
             {
                 ModelState.AddModelError(nameof(request.IdUsuarioResponsable), "El usuario responsable indicado no existe o esta inactivo.");
                 esValido = false;

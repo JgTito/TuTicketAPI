@@ -2,9 +2,9 @@ using AutoMapper;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using TuTicketAPI.Authorization;
 using TuTicketAPI.Dtos.TicketRelacion;
 using TuTicketAPI.Models;
+using TuTicketAPI.Services.Common;
 using TuTicketAPI.Services.Tickets;
 
 namespace TuTicketAPI.Controllers
@@ -16,12 +16,21 @@ namespace TuTicketAPI.Controllers
     {
         private readonly ApplicationDbContext _context;
         private readonly IMapper _mapper;
+        private readonly ICurrentUserService _currentUserService;
+        private readonly IReferenceValidationService _referenceValidationService;
         private readonly ITicketAccessService _ticketAccessService;
 
-        public TicketRelacionController(ApplicationDbContext context, IMapper mapper, ITicketAccessService ticketAccessService)
+        public TicketRelacionController(
+            ApplicationDbContext context,
+            IMapper mapper,
+            ICurrentUserService currentUserService,
+            IReferenceValidationService referenceValidationService,
+            ITicketAccessService ticketAccessService)
         {
             _context = context;
             _mapper = mapper;
+            _currentUserService = currentUserService;
+            _referenceValidationService = referenceValidationService;
             _ticketAccessService = ticketAccessService;
         }
 
@@ -185,25 +194,25 @@ namespace TuTicketAPI.Controllers
                 return false;
             }
 
-            if (!await _context.Tickets.AnyAsync(t => t.IdTicket == idTicketOrigen && t.Activo))
+            if (!await _referenceValidationService.TicketActivoExiste(idTicketOrigen))
             {
                 ModelState.AddModelError(nameof(idTicketOrigen), "El ticket origen no existe o esta inactivo.");
                 esValido = false;
             }
 
-            if (!await _context.Tickets.AnyAsync(t => t.IdTicket == request.IdTicketRelacionado && t.Activo))
+            if (!await _referenceValidationService.TicketActivoExiste(request.IdTicketRelacionado))
             {
                 ModelState.AddModelError(nameof(request.IdTicketRelacionado), "El ticket relacionado no existe o esta inactivo.");
                 esValido = false;
             }
 
-            if (!await _context.TipoRelacionTickets.AnyAsync(t => t.IdTipoRelacionTicket == request.IdTipoRelacionTicket && t.Activo))
+            if (!await _referenceValidationService.TipoRelacionTicketActivoExiste(request.IdTipoRelacionTicket))
             {
                 ModelState.AddModelError(nameof(request.IdTipoRelacionTicket), "El tipo de relacion indicado no existe o esta inactivo.");
                 esValido = false;
             }
 
-            if (!await _context.Users.AnyAsync(u => u.Id == request.IdUsuarioCreacion && u.Activo))
+            if (!await _referenceValidationService.UsuarioActivoExiste(request.IdUsuarioCreacion))
             {
                 ModelState.AddModelError(nameof(request.IdUsuarioCreacion), "El usuario indicado no existe o esta inactivo.");
                 esValido = false;
@@ -222,19 +231,19 @@ namespace TuTicketAPI.Controllers
                 return false;
             }
 
-            if (!await _context.Tickets.AnyAsync(t => t.IdTicket == request.IdTicketOrigen && t.Activo))
+            if (!await _referenceValidationService.TicketActivoExiste(request.IdTicketOrigen))
             {
                 ModelState.AddModelError(nameof(request.IdTicketOrigen), "El ticket origen no existe o esta inactivo.");
                 esValido = false;
             }
 
-            if (!await _context.Tickets.AnyAsync(t => t.IdTicket == request.IdTicketRelacionado && t.Activo))
+            if (!await _referenceValidationService.TicketActivoExiste(request.IdTicketRelacionado))
             {
                 ModelState.AddModelError(nameof(request.IdTicketRelacionado), "El ticket relacionado no existe o esta inactivo.");
                 esValido = false;
             }
 
-            if (!await _context.TipoRelacionTickets.AnyAsync(t => t.IdTipoRelacionTicket == request.IdTipoRelacionTicket && t.Activo))
+            if (!await _referenceValidationService.TipoRelacionTicketActivoExiste(request.IdTipoRelacionTicket))
             {
                 ModelState.AddModelError(nameof(request.IdTipoRelacionTicket), "El tipo de relacion indicado no existe o esta inactivo.");
                 esValido = false;
@@ -274,7 +283,7 @@ namespace TuTicketAPI.Controllers
 
         private async Task<bool> PuedeVerRelacion(TicketRelacion relacion)
         {
-            if (User.IsInRole(AppRoles.Administrador))
+            if (_currentUserService.EsAdministrador)
             {
                 return true;
             }

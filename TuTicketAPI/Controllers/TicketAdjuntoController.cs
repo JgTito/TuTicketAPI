@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using TuTicketAPI.Dtos.Comun;
 using TuTicketAPI.Dtos.TicketAdjunto;
 using TuTicketAPI.Models;
+using TuTicketAPI.Services.Common;
 using TuTicketAPI.Services.Tickets;
 
 namespace TuTicketAPI.Controllers
@@ -19,14 +20,22 @@ namespace TuTicketAPI.Controllers
         private readonly IWebHostEnvironment _environment;
         private readonly ITicketAccessService _ticketAccessService;
         private readonly ITicketAttachmentService _ticketAttachmentService;
+        private readonly IReferenceValidationService _referenceValidationService;
 
-        public TicketAdjuntoController(ApplicationDbContext context, IMapper mapper, IWebHostEnvironment environment, ITicketAccessService ticketAccessService, ITicketAttachmentService ticketAttachmentService)
+        public TicketAdjuntoController(
+            ApplicationDbContext context,
+            IMapper mapper,
+            IWebHostEnvironment environment,
+            ITicketAccessService ticketAccessService,
+            ITicketAttachmentService ticketAttachmentService,
+            IReferenceValidationService referenceValidationService)
         {
             _context = context;
             _mapper = mapper;
             _environment = environment;
             _ticketAccessService = ticketAccessService;
             _ticketAttachmentService = ticketAttachmentService;
+            _referenceValidationService = referenceValidationService;
         }
 
         [HttpGet("/api/Ticket/{idTicket:int}/adjuntos")]
@@ -208,13 +217,13 @@ namespace TuTicketAPI.Controllers
         {
             var esValido = true;
 
-            if (!await _context.Tickets.AnyAsync(t => t.IdTicket == idTicket && t.Activo))
+            if (!await _referenceValidationService.TicketActivoExiste(idTicket))
             {
                 ModelState.AddModelError(nameof(idTicket), "El ticket indicado no existe o esta inactivo.");
                 esValido = false;
             }
 
-            if (!await _context.Users.AnyAsync(u => u.Id == request.IdUsuarioSubida && u.Activo))
+            if (!await _referenceValidationService.UsuarioActivoExiste(request.IdUsuarioSubida))
             {
                 ModelState.AddModelError(nameof(request.IdUsuarioSubida), "El usuario indicado no existe o esta inactivo.");
                 esValido = false;

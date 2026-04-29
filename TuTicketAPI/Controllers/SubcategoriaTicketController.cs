@@ -6,6 +6,7 @@ using TuTicketAPI.Authorization;
 using TuTicketAPI.Dtos.Comun;
 using TuTicketAPI.Dtos.SubcategoriaTicket;
 using TuTicketAPI.Models;
+using TuTicketAPI.Services.Common;
 
 namespace TuTicketAPI.Controllers
 {
@@ -16,11 +17,16 @@ namespace TuTicketAPI.Controllers
     {
         private readonly ApplicationDbContext _context;
         private readonly IMapper _mapper;
+        private readonly IReferenceValidationService _referenceValidationService;
 
-        public SubcategoriaTicketController(ApplicationDbContext context, IMapper mapper)
+        public SubcategoriaTicketController(
+            ApplicationDbContext context,
+            IMapper mapper,
+            IReferenceValidationService referenceValidationService)
         {
             _context = context;
             _mapper = mapper;
+            _referenceValidationService = referenceValidationService;
         }
         [Authorize(Roles = AppRoles.Administrador)]
         [HttpGet]
@@ -131,10 +137,7 @@ namespace TuTicketAPI.Controllers
         {
             Normalizar(request);
 
-            var categoriaExiste = await _context.CategoriaTickets
-                .AnyAsync(c => c.IdCategoriaTicket == request.IdCategoriaTicket && c.Activo);
-
-            if (!categoriaExiste)
+            if (!await _referenceValidationService.CategoriaActivaExiste(request.IdCategoriaTicket))
             {
                 ModelState.AddModelError(nameof(request.IdCategoriaTicket), "La categoria indicada no existe o esta inactiva.");
                 return ValidationProblem(ModelState);
@@ -175,10 +178,7 @@ namespace TuTicketAPI.Controllers
 
             Normalizar(request);
 
-            var categoriaExiste = await _context.CategoriaTickets
-                .AnyAsync(c => c.IdCategoriaTicket == request.IdCategoriaTicket && c.Activo);
-
-            if (!categoriaExiste)
+            if (!await _referenceValidationService.CategoriaActivaExiste(request.IdCategoriaTicket))
             {
                 ModelState.AddModelError(nameof(request.IdCategoriaTicket), "La categoria indicada no existe o esta inactiva.");
                 return ValidationProblem(ModelState);

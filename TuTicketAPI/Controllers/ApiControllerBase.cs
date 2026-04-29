@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
 using TuTicketAPI.Dtos.Comun;
 
@@ -35,11 +34,6 @@ namespace TuTicketAPI.Controllers
                 TotalPaginas = (int)Math.Ceiling(totalRegistros / (double)tamanoPagina),
                 Datos = datos
             };
-        }
-
-        protected string? ObtenerIdUsuarioAutenticado()
-        {
-            return User.FindFirstValue(ClaimTypes.NameIdentifier);
         }
     }
 }
