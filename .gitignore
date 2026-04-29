@@ -3,6 +3,11 @@
 ##
 ## Get latest from `dotnet new gitignore`
 
+
+# Ignorar carpeta de uploads
+TuTicketAPI/Uploads/
+
+
 # dotenv files
 .env
 
