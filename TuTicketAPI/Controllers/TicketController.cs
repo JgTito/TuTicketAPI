@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TuTicketAPI.Authorization;
+using TuTicketAPI.Dtos.Comun;
 using TuTicketAPI.Dtos.Ticket;
 using TuTicketAPI.Dtos.TicketHistorial;
 using TuTicketAPI.Models;
@@ -15,24 +16,65 @@ namespace TuTicketAPI.Controllers
     [Authorize]
     public class TicketController : ControllerBase
     {
+        private const string EstadoInicialTicket = "Abierto";
+        private const string EstadoPendienteDerivacion = "Pendiente de derivación";
+
         private readonly ApplicationDbContext _context;
         private readonly IMapper _mapper;
+        private readonly IWebHostEnvironment _environment;
 
-        public TicketController(ApplicationDbContext context, IMapper mapper)
+        public TicketController(ApplicationDbContext context, IMapper mapper, IWebHostEnvironment environment)
         {
             _context = context;
             _mapper = mapper;
+            _environment = environment;
         }
 
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<TicketDto>>> GetTickets(
+        public async Task<ActionResult<ResultadoPaginadoDto<TicketDto>>> GetTickets(
             [FromQuery] bool incluirInactivos = false,
             [FromQuery] int? idEstadoTicket = null,
             [FromQuery] int? idPrioridadTicket = null,
             [FromQuery] int? idSubcategoriaTicket = null,
             [FromQuery] string? idUsuarioSolicitante = null,
-            [FromQuery] string? idUsuarioAsignado = null)
+            [FromQuery] string? idUsuarioAsignado = null,
+            [FromQuery] string? buscar = null,
+            [FromQuery] DateTime? fechaCreacionDesde = null,
+            [FromQuery] DateTime? fechaCreacionHasta = null,
+            [FromQuery] DateTime? fechaActualizacionDesde = null,
+            [FromQuery] DateTime? fechaActualizacionHasta = null,
+            [FromQuery] DateTime? fechaPrimeraRespuestaDesde = null,
+            [FromQuery] DateTime? fechaPrimeraRespuestaHasta = null,
+            [FromQuery] DateTime? fechaResolucionDesde = null,
+            [FromQuery] DateTime? fechaResolucionHasta = null,
+            [FromQuery] DateTime? fechaCierreDesde = null,
+            [FromQuery] DateTime? fechaCierreHasta = null,
+            [FromQuery] int pagina = 1,
+            [FromQuery] int tamanoPagina = 10)
         {
+            if (pagina < 1)
+            {
+                ModelState.AddModelError(nameof(pagina), "La pagina debe ser mayor o igual a 1.");
+                return ValidationProblem(ModelState);
+            }
+
+            if (tamanoPagina < 1 || tamanoPagina > 100)
+            {
+                ModelState.AddModelError(nameof(tamanoPagina), "El tamano de pagina debe estar entre 1 y 100.");
+                return ValidationProblem(ModelState);
+            }
+
+            ValidarRangoFechas(fechaCreacionDesde, fechaCreacionHasta, nameof(fechaCreacionDesde), "creacion");
+            ValidarRangoFechas(fechaActualizacionDesde, fechaActualizacionHasta, nameof(fechaActualizacionDesde), "actualizacion");
+            ValidarRangoFechas(fechaPrimeraRespuestaDesde, fechaPrimeraRespuestaHasta, nameof(fechaPrimeraRespuestaDesde), "primera respuesta");
+            ValidarRangoFechas(fechaResolucionDesde, fechaResolucionHasta, nameof(fechaResolucionDesde), "resolucion");
+            ValidarRangoFechas(fechaCierreDesde, fechaCierreHasta, nameof(fechaCierreDesde), "cierre");
+
+            if (!ModelState.IsValid)
+            {
+                return ValidationProblem(ModelState);
+            }
+
             var query = TicketsConReferencias().AsNoTracking();
             query = AplicarFiltroAcceso(query);
 
@@ -68,11 +110,92 @@ namespace TuTicketAPI.Controllers
                 query = query.Where(t => t.IdUsuarioAsignado == usuario);
             }
 
+            if (!string.IsNullOrWhiteSpace(buscar))
+            {
+                var filtro = buscar.Trim();
+                query = query.Where(t =>
+                    t.Titulo.Contains(filtro) ||
+                    t.Descripcion.Contains(filtro));
+            }
+
+            if (fechaCreacionDesde.HasValue)
+            {
+                var desde = fechaCreacionDesde.Value;
+                query = query.Where(t => t.FechaCreacion >= desde);
+            }
+
+            if (fechaCreacionHasta.HasValue)
+            {
+                var hasta = fechaCreacionHasta.Value;
+                query = query.Where(t => t.FechaCreacion <= hasta);
+            }
+
+            if (fechaActualizacionDesde.HasValue)
+            {
+                var desde = fechaActualizacionDesde.Value;
+                query = query.Where(t => t.FechaActualizacion.HasValue && t.FechaActualizacion.Value >= desde);
+            }
+
+            if (fechaActualizacionHasta.HasValue)
+            {
+                var hasta = fechaActualizacionHasta.Value;
+                query = query.Where(t => t.FechaActualizacion.HasValue && t.FechaActualizacion.Value <= hasta);
+            }
+
+            if (fechaPrimeraRespuestaDesde.HasValue)
+            {
+                var desde = fechaPrimeraRespuestaDesde.Value;
+                query = query.Where(t => t.FechaPrimeraRespuesta.HasValue && t.FechaPrimeraRespuesta.Value >= desde);
+            }
+
+            if (fechaPrimeraRespuestaHasta.HasValue)
+            {
+                var hasta = fechaPrimeraRespuestaHasta.Value;
+                query = query.Where(t => t.FechaPrimeraRespuesta.HasValue && t.FechaPrimeraRespuesta.Value <= hasta);
+            }
+
+            if (fechaResolucionDesde.HasValue)
+            {
+                var desde = fechaResolucionDesde.Value;
+                query = query.Where(t => t.FechaResolucion.HasValue && t.FechaResolucion.Value >= desde);
+            }
+
+            if (fechaResolucionHasta.HasValue)
+            {
+                var hasta = fechaResolucionHasta.Value;
+                query = query.Where(t => t.FechaResolucion.HasValue && t.FechaResolucion.Value <= hasta);
+            }
+
+            if (fechaCierreDesde.HasValue)
+            {
+                var desde = fechaCierreDesde.Value;
+                query = query.Where(t => t.FechaCierre.HasValue && t.FechaCierre.Value >= desde);
+            }
+
+            if (fechaCierreHasta.HasValue)
+            {
+                var hasta = fechaCierreHasta.Value;
+                query = query.Where(t => t.FechaCierre.HasValue && t.FechaCierre.Value <= hasta);
+            }
+
+            var totalRegistros = await query.CountAsync();
+
             var tickets = await query
                 .OrderByDescending(t => t.FechaCreacion)
+                .Skip((pagina - 1) * tamanoPagina)
+                .Take(tamanoPagina)
                 .ToListAsync();
 
-            return Ok(_mapper.Map<IEnumerable<TicketDto>>(tickets));
+            var response = new ResultadoPaginadoDto<TicketDto>
+            {
+                Pagina = pagina,
+                TamanoPagina = tamanoPagina,
+                TotalRegistros = totalRegistros,
+                TotalPaginas = (int)Math.Ceiling(totalRegistros / (double)tamanoPagina),
+                Datos = _mapper.Map<IEnumerable<TicketDto>>(tickets)
+            };
+
+            return Ok(response);
         }
 
         [HttpGet("{id:int}")]
@@ -96,25 +219,97 @@ namespace TuTicketAPI.Controllers
         }
 
         [HttpGet("{id:int}/historial")]
-        public async Task<ActionResult<IEnumerable<TicketHistorialDto>>> GetHistorial([FromRoute] int id)
+        public async Task<ActionResult<ResultadoPaginadoDto<TicketHistorialDto>>> GetHistorial(
+            [FromRoute] int id,
+            [FromQuery] int pagina = 1,
+            [FromQuery] int tamanoPagina = 10)
         {
+            if (pagina < 1)
+            {
+                ModelState.AddModelError(nameof(pagina), "La pagina debe ser mayor o igual a 1.");
+                return ValidationProblem(ModelState);
+            }
+
+            if (tamanoPagina < 1 || tamanoPagina > 100)
+            {
+                ModelState.AddModelError(nameof(tamanoPagina), "El tamano de pagina debe estar entre 1 y 100.");
+                return ValidationProblem(ModelState);
+            }
+
             if (!await PuedeVerTicket(id))
             {
                 return Forbid();
             }
 
-            var historial = await _context.TicketHistoriales
+            var query = _context.TicketHistoriales
                 .Include(h => h.UsuarioModificacion)
                 .AsNoTracking()
-                .Where(h => h.IdTicket == id)
+                .Where(h => h.IdTicket == id);
+
+            var totalRegistros = await query.CountAsync();
+
+            var historial = await query
                 .OrderByDescending(h => h.FechaModificacion)
+                .Skip((pagina - 1) * tamanoPagina)
+                .Take(tamanoPagina)
                 .ToListAsync();
 
-            return Ok(_mapper.Map<IEnumerable<TicketHistorialDto>>(historial));
+            var response = new ResultadoPaginadoDto<TicketHistorialDto>
+            {
+                Pagina = pagina,
+                TamanoPagina = tamanoPagina,
+                TotalRegistros = totalRegistros,
+                TotalPaginas = (int)Math.Ceiling(totalRegistros / (double)tamanoPagina),
+                Datos = _mapper.Map<IEnumerable<TicketHistorialDto>>(historial)
+            };
+
+            return Ok(response);
+        }
+
+        [HttpGet("{id:int}/estados-disponibles")]
+        public async Task<ActionResult<IEnumerable<EstadoDisponibleTicketDto>>> GetEstadosDisponibles([FromRoute] int id)
+        {
+            var ticket = await _context.Tickets
+                .AsNoTracking()
+                .FirstOrDefaultAsync(t => t.IdTicket == id);
+
+            if (ticket is null)
+            {
+                return NotFound();
+            }
+
+            if (!await PuedeVerTicket(id))
+            {
+                return Forbid();
+            }
+
+            var estados = await _context.FlujoEstadoTickets
+                .AsNoTracking()
+                .Where(f =>
+                    f.Activo &&
+                    f.IdEstadoOrigen == ticket.IdEstadoTicket &&
+                    f.EstadoDestino.Activo)
+                .OrderBy(f => f.EstadoDestino.Orden)
+                .ThenBy(f => f.EstadoDestino.Nombre)
+                .Select(f => new EstadoDisponibleTicketDto
+                {
+                    IdFlujoEstadoTicket = f.IdFlujoEstadoTicket,
+                    IdEstadoTicket = f.IdEstadoDestino,
+                    Nombre = f.EstadoDestino.Nombre,
+                    Descripcion = f.EstadoDestino.Descripcion,
+                    EsEstadoFinal = f.EstadoDestino.EsEstadoFinal,
+                    Orden = f.EstadoDestino.Orden,
+                    RequiereComentario = f.RequiereComentario
+                })
+                .ToListAsync();
+
+            return Ok(estados);
         }
 
         [HttpPost]
-        public async Task<ActionResult<TicketDto>> CreateTicket([FromBody] CrearTicketDto request)
+        [Consumes("multipart/form-data")]
+        [RequestSizeLimit(25_000_000)]
+        public async Task<ActionResult<TicketDto>> CreateTicket([FromForm] CrearTicketDto request)
         {
             Normalizar(request);
 
@@ -135,6 +330,26 @@ namespace TuTicketAPI.Controllers
                 return ValidationProblem(ModelState);
             }
 
+            if (!ArchivosValidos(request.Archivos))
+            {
+                return ValidationProblem(ModelState);
+            }
+
+            var estadoInicial = await ObtenerEstadoActivoPorNombre(EstadoInicialTicket);
+            var estadoPendienteDerivacion = await ObtenerEstadoActivoPorNombre(EstadoPendienteDerivacion);
+
+            if (estadoInicial is null)
+            {
+                ModelState.AddModelError("EstadoInicial", $"No existe el estado activo '{EstadoInicialTicket}'.");
+                return ValidationProblem(ModelState);
+            }
+
+            if (estadoPendienteDerivacion is null)
+            {
+                ModelState.AddModelError("EstadoPendienteDerivacion", $"No existe el estado activo '{EstadoPendienteDerivacion}'.");
+                return ValidationProblem(ModelState);
+            }
+
             var idUsuarioResponsable = await ObtenerUsuarioResponsableCategoria(request.IdSubcategoriaTicket);
 
             if (idUsuarioResponsable is null)
@@ -143,18 +358,64 @@ namespace TuTicketAPI.Controllers
                 return ValidationProblem(ModelState);
             }
 
+            var nombreSolicitante = await ObtenerNombreUsuario(idUsuarioSolicitante);
+            var nombreResponsable = await ObtenerNombreUsuario(idUsuarioResponsable);
+
             var ticket = _mapper.Map<Ticket>(request);
             ticket.Codigo = await GenerarCodigo();
+            ticket.IdEstadoTicket = estadoInicial.IdEstadoTicket;
             ticket.IdUsuarioSolicitante = idUsuarioSolicitante;
             ticket.IdUsuarioAsignado = idUsuarioResponsable;
 
-            _context.Tickets.Add(ticket);
-            await _context.SaveChangesAsync();
+            var rutasGuardadas = new List<string>();
 
-            _context.TicketHistoriales.Add(CrearHistorial(ticket.IdTicket, "Creacion", null, ticket.Codigo, idUsuarioSolicitante, "Ticket creado."));
-            _context.TicketHistoriales.Add(CrearHistorial(ticket.IdTicket, "IdUsuarioAsignado", null, idUsuarioResponsable, idUsuarioSolicitante, "Asignacion automatica al responsable de categoria."));
-            await CrearSlaActivo(ticket);
-            await _context.SaveChangesAsync();
+            await using var transaction = await _context.Database.BeginTransactionAsync();
+
+            try
+            {
+                _context.Tickets.Add(ticket);
+                await _context.SaveChangesAsync();
+
+                await AgregarAdjuntos(ticket.IdTicket, request.Archivos, idUsuarioSolicitante, rutasGuardadas);
+
+                _context.TicketHistoriales.Add(CrearHistorial(
+                    ticket.IdTicket,
+                    "Creacion",
+                    null,
+                    ticket.Codigo,
+                    idUsuarioSolicitante,
+                    $"Ticket {ticket.Codigo} creado por {nombreSolicitante}. Estado inicial: {estadoInicial.Nombre}."));
+
+                _context.TicketHistoriales.Add(CrearHistorial(
+                    ticket.IdTicket,
+                    "IdUsuarioAsignado",
+                    null,
+                    idUsuarioResponsable,
+                    idUsuarioSolicitante,
+                    $"Responsable de categoria asignado automaticamente: {nombreResponsable}."));
+
+                _context.TicketHistoriales.Add(CrearHistorial(
+                    ticket.IdTicket,
+                    "IdEstadoTicket",
+                    estadoInicial.Nombre,
+                    estadoPendienteDerivacion.Nombre,
+                    idUsuarioSolicitante,
+                    $"Ticket recibido por {nombreResponsable}, responsable de categoria. Cambio automatico de estado desde {estadoInicial.Nombre} a {estadoPendienteDerivacion.Nombre}."));
+
+                ticket.IdEstadoTicket = estadoPendienteDerivacion.IdEstadoTicket;
+                ticket.FechaActualizacion = DateTime.Now;
+
+                await CrearSlaActivo(ticket);
+                await _context.SaveChangesAsync();
+
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                EliminarArchivosGuardados(rutasGuardadas);
+                throw;
+            }
 
             await CargarReferencias(ticket);
 
@@ -222,13 +483,32 @@ namespace TuTicketAPI.Controllers
 
             Normalizar(request);
 
-            if (!await UsuarioActivoExiste(request.IdUsuarioAsignado, nameof(request.IdUsuarioAsignado)) ||
-                !await UsuarioActivoExiste(request.IdUsuarioModificacion, nameof(request.IdUsuarioModificacion)))
+            var idUsuarioModificacion = ObtenerIdUsuarioAutenticado();
+
+            if (idUsuarioModificacion is null)
+            {
+                return Unauthorized();
+            }
+
+            if (!await UsuarioActivoExiste(idUsuarioModificacion, "UsuarioModificacion") ||
+                !await UsuarioActivoExiste(request.IdUsuarioAsignado, nameof(request.IdUsuarioAsignado)))
             {
                 return ValidationProblem(ModelState);
             }
 
-            RegistrarCambio(ticket.IdTicket, "IdUsuarioAsignado", ticket.IdUsuarioAsignado, request.IdUsuarioAsignado, request.IdUsuarioModificacion, request.Comentario);
+            var nombreUsuarioModificacion = await ObtenerNombreUsuario(idUsuarioModificacion);
+            var nombreAsignadoAnterior = string.IsNullOrWhiteSpace(ticket.IdUsuarioAsignado)
+                ? "Sin usuario asignado"
+                : await ObtenerNombreUsuario(ticket.IdUsuarioAsignado);
+            var nombreAsignadoNuevo = await ObtenerNombreUsuario(request.IdUsuarioAsignado);
+            var comentario = $"Ticket asignado por {nombreUsuarioModificacion}. Responsable anterior: {nombreAsignadoAnterior}. Nuevo responsable: {nombreAsignadoNuevo}.";
+
+            if (!string.IsNullOrWhiteSpace(request.Comentario))
+            {
+                comentario = $"{comentario} Comentario: {request.Comentario}";
+            }
+
+            RegistrarCambio(ticket.IdTicket, "IdUsuarioAsignado", ticket.IdUsuarioAsignado, request.IdUsuarioAsignado, idUsuarioModificacion, comentario);
             ticket.IdUsuarioAsignado = request.IdUsuarioAsignado;
             ticket.FechaActualizacion = DateTime.Now;
 
@@ -392,12 +672,6 @@ namespace TuTicketAPI.Controllers
         {
             var esValido = true;
 
-            if (!await _context.EstadoTickets.AnyAsync(e => e.IdEstadoTicket == request.IdEstadoTicket && e.Activo))
-            {
-                ModelState.AddModelError(nameof(request.IdEstadoTicket), "El estado indicado no existe o esta inactivo.");
-                esValido = false;
-            }
-
             if (!await _context.PrioridadTickets.AnyAsync(p => p.IdPrioridadTicket == request.IdPrioridadTicket && p.Activo))
             {
                 ModelState.AddModelError(nameof(request.IdPrioridadTicket), "La prioridad indicada no existe o esta inactiva.");
@@ -411,6 +685,14 @@ namespace TuTicketAPI.Controllers
             }
 
             return esValido;
+        }
+
+        private void ValidarRangoFechas(DateTime? desde, DateTime? hasta, string campoDesde, string nombreFecha)
+        {
+            if (desde.HasValue && hasta.HasValue && desde.Value > hasta.Value)
+            {
+                ModelState.AddModelError(campoDesde, $"La fecha desde de {nombreFecha} no puede ser mayor que la fecha hasta.");
+            }
         }
 
         private async Task<bool> ReferenciasValidas(ActualizarTicketDto request)
@@ -602,6 +884,21 @@ namespace TuTicketAPI.Controllers
                 .FirstOrDefaultAsync();
         }
 
+        private Task<EstadoTicket?> ObtenerEstadoActivoPorNombre(string nombre)
+        {
+            return _context.EstadoTickets
+                .AsNoTracking()
+                .FirstOrDefaultAsync(e => e.Nombre == nombre && e.Activo);
+        }
+
+        private async Task<string> ObtenerNombreUsuario(string idUsuario)
+        {
+            return await _context.Users
+                .Where(u => u.Id == idUsuario)
+                .Select(u => u.NombreCompleto)
+                .FirstOrDefaultAsync() ?? idUsuario;
+        }
+
         private async Task<string> GenerarCodigo()
         {
             string codigo;
@@ -691,6 +988,80 @@ namespace TuTicketAPI.Controllers
             });
         }
 
+        private bool ArchivosValidos(IReadOnlyList<IFormFile>? archivos)
+        {
+            if (archivos is null || archivos.Count == 0)
+            {
+                return true;
+            }
+
+            for (var i = 0; i < archivos.Count; i++)
+            {
+                if (archivos[i].Length == 0)
+                {
+                    ModelState.AddModelError($"{nameof(CrearTicketDto.Archivos)}[{i}]", "El archivo esta vacio.");
+                }
+            }
+
+            return ModelState.IsValid;
+        }
+
+        private async Task AgregarAdjuntos(int idTicket, IEnumerable<IFormFile>? archivos, string idUsuarioSubida, ICollection<string> rutasGuardadas)
+        {
+            if (archivos is null)
+            {
+                return;
+            }
+
+            var directorioTicket = Path.Combine(_environment.ContentRootPath, "Uploads", "Tickets", idTicket.ToString());
+            Directory.CreateDirectory(directorioTicket);
+
+            foreach (var archivo in archivos)
+            {
+                var extension = Path.GetExtension(archivo.FileName);
+                var nombreGuardado = $"{Guid.NewGuid():N}{extension}";
+                var rutaFisica = Path.Combine(directorioTicket, nombreGuardado);
+
+                await using (var stream = System.IO.File.Create(rutaFisica))
+                {
+                    await archivo.CopyToAsync(stream);
+                }
+
+                rutasGuardadas.Add(rutaFisica);
+
+                _context.TicketAdjuntos.Add(new TicketAdjunto
+                {
+                    IdTicket = idTicket,
+                    NombreArchivoOriginal = Path.GetFileName(archivo.FileName),
+                    NombreArchivoGuardado = nombreGuardado,
+                    RutaArchivo = rutaFisica,
+                    TipoContenido = string.IsNullOrWhiteSpace(archivo.ContentType) ? "application/octet-stream" : archivo.ContentType,
+                    Extension = string.IsNullOrWhiteSpace(extension) ? null : extension,
+                    PesoBytes = archivo.Length,
+                    IdUsuarioSubida = idUsuarioSubida,
+                    Activo = true
+                });
+            }
+        }
+
+        private static void EliminarArchivosGuardados(IEnumerable<string> rutasGuardadas)
+        {
+            foreach (var ruta in rutasGuardadas)
+            {
+                try
+                {
+                    if (System.IO.File.Exists(ruta))
+                    {
+                        System.IO.File.Delete(ruta);
+                    }
+                }
+                catch
+                {
+                    // La transaccion de base de datos ya se revirtio; la limpieza de archivos no debe ocultar el error original.
+                }
+            }
+        }
+
         private static void Normalizar(CrearTicketDto request)
         {
             request.Titulo = request.Titulo.Trim();
@@ -709,7 +1080,6 @@ namespace TuTicketAPI.Controllers
         private static void Normalizar(AsignarTicketDto request)
         {
             request.IdUsuarioAsignado = request.IdUsuarioAsignado.Trim();
-            request.IdUsuarioModificacion = request.IdUsuarioModificacion.Trim();
             request.Comentario = string.IsNullOrWhiteSpace(request.Comentario) ? null : request.Comentario.Trim();
         }
 

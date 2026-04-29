@@ -109,7 +109,6 @@ namespace TuTicketAPI.Controllers
         }
 
         [HttpGet("select")]
-        [Authorize(Roles = $"{AppRoles.Administrador},{AppRoles.ResolvedorTicket}")]
         public async Task<ActionResult<IEnumerable<UsuarioSelectDto>>> GetUsuariosSelect(
             [FromQuery] string? buscar = null,
             [FromQuery] bool incluirInactivos = false)

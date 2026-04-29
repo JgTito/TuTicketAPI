@@ -4,6 +4,7 @@ using AutoMapper;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TuTicketAPI.Authorization;
+using TuTicketAPI.Dtos.Comun;
 using TuTicketAPI.Dtos.TicketBitacora;
 using TuTicketAPI.Models;
 
@@ -24,11 +25,25 @@ namespace TuTicketAPI.Controllers
         }
 
         [HttpGet("/api/Ticket/{idTicket:int}/bitacora")]
-        public async Task<ActionResult<IEnumerable<TicketBitacoraDto>>> GetBitacorasPorTicket(
+        public async Task<ActionResult<ResultadoPaginadoDto<TicketBitacoraDto>>> GetBitacorasPorTicket(
             [FromRoute] int idTicket,
             [FromQuery] bool incluirInactivos = false,
-            [FromQuery] bool? esInterno = null)
+            [FromQuery] bool? esInterno = null,
+            [FromQuery] int pagina = 1,
+            [FromQuery] int tamanoPagina = 10)
         {
+            if (pagina < 1)
+            {
+                ModelState.AddModelError(nameof(pagina), "La pagina debe ser mayor o igual a 1.");
+                return ValidationProblem(ModelState);
+            }
+
+            if (tamanoPagina < 1 || tamanoPagina > 100)
+            {
+                ModelState.AddModelError(nameof(tamanoPagina), "El tamano de pagina debe estar entre 1 y 100.");
+                return ValidationProblem(ModelState);
+            }
+
             if (!await PuedeVerTicket(idTicket))
             {
                 return Forbid();
@@ -49,11 +64,24 @@ namespace TuTicketAPI.Controllers
                 query = query.Where(b => b.EsInterno == esInterno.Value);
             }
 
+            var totalRegistros = await query.CountAsync();
+
             var bitacoras = await query
                 .OrderByDescending(b => b.FechaCreacion)
+                .Skip((pagina - 1) * tamanoPagina)
+                .Take(tamanoPagina)
                 .ToListAsync();
 
-            return Ok(_mapper.Map<IEnumerable<TicketBitacoraDto>>(bitacoras));
+            var response = new ResultadoPaginadoDto<TicketBitacoraDto>
+            {
+                Pagina = pagina,
+                TamanoPagina = tamanoPagina,
+                TotalRegistros = totalRegistros,
+                TotalPaginas = (int)Math.Ceiling(totalRegistros / (double)tamanoPagina),
+                Datos = _mapper.Map<IEnumerable<TicketBitacoraDto>>(bitacoras)
+            };
+
+            return Ok(response);
         }
 
         [HttpGet("{id:int}")]

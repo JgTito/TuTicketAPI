@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TuTicketAPI.Authorization;
+using TuTicketAPI.Dtos.Comun;
 using TuTicketAPI.Dtos.EquipoSoporteUsuario;
 using TuTicketAPI.Models;
 
@@ -23,12 +24,26 @@ namespace TuTicketAPI.Controllers
         }
 
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<EquipoSoporteUsuarioDto>>> GetEquipoSoporteUsuarios(
+        public async Task<ActionResult<ResultadoPaginadoDto<EquipoSoporteUsuarioDto>>> GetEquipoSoporteUsuarios(
             [FromQuery] bool incluirInactivos = false,
             [FromQuery] int? idEquipoSoporte = null,
             [FromQuery] string? idUsuario = null,
-            [FromQuery] bool? esLider = null)
+            [FromQuery] bool? esLider = null,
+            [FromQuery] int pagina = 1,
+            [FromQuery] int tamanoPagina = 10)
         {
+            if (pagina < 1)
+            {
+                ModelState.AddModelError(nameof(pagina), "La pagina debe ser mayor o igual a 1.");
+                return ValidationProblem(ModelState);
+            }
+
+            if (tamanoPagina < 1 || tamanoPagina > 100)
+            {
+                ModelState.AddModelError(nameof(tamanoPagina), "El tamano de pagina debe estar entre 1 y 100.");
+                return ValidationProblem(ModelState);
+            }
+
             var query = _context.EquipoSoporteUsuarios
                 .Include(e => e.EquipoSoporte)
                 .Include(e => e.Usuario)
@@ -55,13 +70,26 @@ namespace TuTicketAPI.Controllers
                 query = query.Where(e => e.EsLider == esLider.Value);
             }
 
+            var totalRegistros = await query.CountAsync();
+
             var usuarios = await query
                 .OrderBy(e => e.EquipoSoporte.Nombre)
                 .ThenByDescending(e => e.EsLider)
                 .ThenBy(e => e.Usuario.NombreCompleto)
+                .Skip((pagina - 1) * tamanoPagina)
+                .Take(tamanoPagina)
                 .ToListAsync();
 
-            return Ok(_mapper.Map<IEnumerable<EquipoSoporteUsuarioDto>>(usuarios));
+            var response = new ResultadoPaginadoDto<EquipoSoporteUsuarioDto>
+            {
+                Pagina = pagina,
+                TamanoPagina = tamanoPagina,
+                TotalRegistros = totalRegistros,
+                TotalPaginas = (int)Math.Ceiling(totalRegistros / (double)tamanoPagina),
+                Datos = _mapper.Map<IEnumerable<EquipoSoporteUsuarioDto>>(usuarios)
+            };
+
+            return Ok(response);
         }
 
         [HttpGet("{id:int}")]

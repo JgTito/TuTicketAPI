@@ -12,13 +12,11 @@ namespace TuTicketAPI.Dtos.Ticket
         public string Descripcion { get; set; } = string.Empty;
 
         [Range(1, int.MaxValue)]
-        public int IdEstadoTicket { get; set; }
-
-        [Range(1, int.MaxValue)]
         public int IdPrioridadTicket { get; set; }
 
         [Range(1, int.MaxValue)]
         public int IdSubcategoriaTicket { get; set; }
 
+        public List<IFormFile>? Archivos { get; set; }
     }
 }

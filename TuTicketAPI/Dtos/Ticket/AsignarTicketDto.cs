@@ -7,9 +7,6 @@ namespace TuTicketAPI.Dtos.Ticket
         [Required]
         public string IdUsuarioAsignado { get; set; } = string.Empty;
 
-        [Required]
-        public string IdUsuarioModificacion { get; set; } = string.Empty;
-
         [MaxLength(500)]
         public string? Comentario { get; set; }
     }

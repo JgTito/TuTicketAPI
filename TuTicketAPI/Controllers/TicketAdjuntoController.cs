@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TuTicketAPI.Authorization;
+using TuTicketAPI.Dtos.Comun;
 using TuTicketAPI.Dtos.TicketAdjunto;
 using TuTicketAPI.Models;
 
@@ -26,10 +27,24 @@ namespace TuTicketAPI.Controllers
         }
 
         [HttpGet("/api/Ticket/{idTicket:int}/adjuntos")]
-        public async Task<ActionResult<IEnumerable<TicketAdjuntoDto>>> GetAdjuntosPorTicket(
+        public async Task<ActionResult<ResultadoPaginadoDto<TicketAdjuntoDto>>> GetAdjuntosPorTicket(
             [FromRoute] int idTicket,
-            [FromQuery] bool incluirInactivos = false)
+            [FromQuery] bool incluirInactivos = false,
+            [FromQuery] int pagina = 1,
+            [FromQuery] int tamanoPagina = 10)
         {
+            if (pagina < 1)
+            {
+                ModelState.AddModelError(nameof(pagina), "La pagina debe ser mayor o igual a 1.");
+                return ValidationProblem(ModelState);
+            }
+
+            if (tamanoPagina < 1 || tamanoPagina > 100)
+            {
+                ModelState.AddModelError(nameof(tamanoPagina), "El tamano de pagina debe estar entre 1 y 100.");
+                return ValidationProblem(ModelState);
+            }
+
             if (!await PuedeVerTicket(idTicket))
             {
                 return Forbid();
@@ -44,11 +59,24 @@ namespace TuTicketAPI.Controllers
                 query = query.Where(a => a.Activo);
             }
 
+            var totalRegistros = await query.CountAsync();
+
             var adjuntos = await query
                 .OrderByDescending(a => a.FechaSubida)
+                .Skip((pagina - 1) * tamanoPagina)
+                .Take(tamanoPagina)
                 .ToListAsync();
 
-            return Ok(_mapper.Map<IEnumerable<TicketAdjuntoDto>>(adjuntos));
+            var response = new ResultadoPaginadoDto<TicketAdjuntoDto>
+            {
+                Pagina = pagina,
+                TamanoPagina = tamanoPagina,
+                TotalRegistros = totalRegistros,
+                TotalPaginas = (int)Math.Ceiling(totalRegistros / (double)tamanoPagina),
+                Datos = _mapper.Map<IEnumerable<TicketAdjuntoDto>>(adjuntos)
+            };
+
+            return Ok(response);
         }
 
         [HttpGet("{id:int}")]
@@ -73,7 +101,7 @@ namespace TuTicketAPI.Controllers
 
         [HttpPost("/api/Ticket/{idTicket:int}/adjuntos")]
         [RequestSizeLimit(25_000_000)]
-        public async Task<ActionResult<TicketAdjuntoDto>> UploadAdjunto([FromRoute] int idTicket, [FromForm] CrearTicketAdjuntoDto request)
+        public async Task<ActionResult<IEnumerable<TicketAdjuntoDto>>> UploadAdjunto([FromRoute] int idTicket, [FromForm] CrearTicketAdjuntoDto request)
         {
             Normalizar(request);
 
@@ -87,47 +115,64 @@ namespace TuTicketAPI.Controllers
                 return ValidationProblem(ModelState);
             }
 
-            if (request.Archivo.Length == 0)
+            if (!ArchivosValidos(request.Archivos))
             {
-                ModelState.AddModelError(nameof(request.Archivo), "El archivo esta vacio.");
                 return ValidationProblem(ModelState);
             }
 
-            var extension = Path.GetExtension(request.Archivo.FileName);
-            var nombreGuardado = $"{Guid.NewGuid():N}{extension}";
             var directorioTicket = Path.Combine(_environment.ContentRootPath, "Uploads", "Tickets", idTicket.ToString());
-
             Directory.CreateDirectory(directorioTicket);
 
-            var rutaFisica = Path.Combine(directorioTicket, nombreGuardado);
+            var rutasGuardadas = new List<string>();
+            var adjuntos = new List<TicketAdjunto>();
 
-            await using (var stream = System.IO.File.Create(rutaFisica))
+            try
             {
-                await request.Archivo.CopyToAsync(stream);
+                foreach (var archivo in request.Archivos)
+                {
+                    var extension = Path.GetExtension(archivo.FileName);
+                    var nombreGuardado = $"{Guid.NewGuid():N}{extension}";
+                    var rutaFisica = Path.Combine(directorioTicket, nombreGuardado);
+
+                    await using (var stream = System.IO.File.Create(rutaFisica))
+                    {
+                        await archivo.CopyToAsync(stream);
+                    }
+
+                    rutasGuardadas.Add(rutaFisica);
+
+                    adjuntos.Add(new TicketAdjunto
+                    {
+                        IdTicket = idTicket,
+                        NombreArchivoOriginal = Path.GetFileName(archivo.FileName),
+                        NombreArchivoGuardado = nombreGuardado,
+                        RutaArchivo = rutaFisica,
+                        TipoContenido = string.IsNullOrWhiteSpace(archivo.ContentType) ? "application/octet-stream" : archivo.ContentType,
+                        Extension = string.IsNullOrWhiteSpace(extension) ? null : extension,
+                        PesoBytes = archivo.Length,
+                        IdUsuarioSubida = request.IdUsuarioSubida,
+                        Activo = true
+                    });
+                }
+
+                _context.TicketAdjuntos.AddRange(adjuntos);
+                await _context.SaveChangesAsync();
+            }
+            catch
+            {
+                EliminarArchivosGuardados(rutasGuardadas);
+                throw;
             }
 
-            var adjunto = new TicketAdjunto
+            foreach (var adjunto in adjuntos)
             {
-                IdTicket = idTicket,
-                NombreArchivoOriginal = Path.GetFileName(request.Archivo.FileName),
-                NombreArchivoGuardado = nombreGuardado,
-                RutaArchivo = rutaFisica,
-                TipoContenido = string.IsNullOrWhiteSpace(request.Archivo.ContentType) ? "application/octet-stream" : request.Archivo.ContentType,
-                Extension = string.IsNullOrWhiteSpace(extension) ? null : extension,
-                PesoBytes = request.Archivo.Length,
-                IdUsuarioSubida = request.IdUsuarioSubida,
-                Activo = true
-            };
+                await _context.Entry(adjunto).Reference(a => a.Ticket).LoadAsync();
+                await _context.Entry(adjunto).Reference(a => a.UsuarioSubida).LoadAsync();
+            }
 
-            _context.TicketAdjuntos.Add(adjunto);
-            await _context.SaveChangesAsync();
+            var response = _mapper.Map<IEnumerable<TicketAdjuntoDto>>(adjuntos);
 
-            await _context.Entry(adjunto).Reference(a => a.Ticket).LoadAsync();
-            await _context.Entry(adjunto).Reference(a => a.UsuarioSubida).LoadAsync();
-
-            var response = _mapper.Map<TicketAdjuntoDto>(adjunto);
-
-            return CreatedAtAction(nameof(GetTicketAdjunto), new { id = adjunto.IdTicketAdjunto }, response);
+            return CreatedAtAction(nameof(GetAdjuntosPorTicket), new { idTicket }, response);
         }
 
         [HttpGet("{id:int}/descargar")]
@@ -216,6 +261,43 @@ namespace TuTicketAPI.Controllers
         private static void Normalizar(CrearTicketAdjuntoDto request)
         {
             request.IdUsuarioSubida = request.IdUsuarioSubida.Trim();
+        }
+
+        private bool ArchivosValidos(IReadOnlyList<IFormFile> archivos)
+        {
+            if (archivos.Count == 0)
+            {
+                ModelState.AddModelError(nameof(CrearTicketAdjuntoDto.Archivos), "Debe adjuntar al menos un archivo.");
+                return false;
+            }
+
+            for (var i = 0; i < archivos.Count; i++)
+            {
+                if (archivos[i].Length == 0)
+                {
+                    ModelState.AddModelError($"{nameof(CrearTicketAdjuntoDto.Archivos)}[{i}]", "El archivo esta vacio.");
+                }
+            }
+
+            return ModelState.IsValid;
+        }
+
+        private static void EliminarArchivosGuardados(IEnumerable<string> rutasGuardadas)
+        {
+            foreach (var ruta in rutasGuardadas)
+            {
+                try
+                {
+                    if (System.IO.File.Exists(ruta))
+                    {
+                        System.IO.File.Delete(ruta);
+                    }
+                }
+                catch
+                {
+                    // La limpieza de archivos no debe ocultar el error original del upload.
+                }
+            }
         }
 
         private async Task<bool> PuedeVerTicket(int idTicket)

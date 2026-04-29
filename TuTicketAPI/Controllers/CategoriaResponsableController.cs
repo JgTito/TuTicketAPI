@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TuTicketAPI.Authorization;
 using TuTicketAPI.Dtos.CategoriaResponsable;
+using TuTicketAPI.Dtos.Comun;
 using TuTicketAPI.Models;
 
 namespace TuTicketAPI.Controllers
@@ -23,11 +24,25 @@ namespace TuTicketAPI.Controllers
         }
 
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<CategoriaResponsableDto>>> GetCategoriaResponsables(
+        public async Task<ActionResult<ResultadoPaginadoDto<CategoriaResponsableDto>>> GetCategoriaResponsables(
             [FromQuery] bool incluirInactivos = false,
             [FromQuery] int? idCategoriaTicket = null,
-            [FromQuery] string? idUsuarioResponsable = null)
+            [FromQuery] string? idUsuarioResponsable = null,
+            [FromQuery] int pagina = 1,
+            [FromQuery] int tamanoPagina = 10)
         {
+            if (pagina < 1)
+            {
+                ModelState.AddModelError(nameof(pagina), "La pagina debe ser mayor o igual a 1.");
+                return ValidationProblem(ModelState);
+            }
+
+            if (tamanoPagina < 1 || tamanoPagina > 100)
+            {
+                ModelState.AddModelError(nameof(tamanoPagina), "El tamano de pagina debe estar entre 1 y 100.");
+                return ValidationProblem(ModelState);
+            }
+
             var query = _context.CategoriaResponsables
                 .Include(r => r.CategoriaTicket)
                 .Include(r => r.UsuarioResponsable)
@@ -49,12 +64,25 @@ namespace TuTicketAPI.Controllers
                 query = query.Where(r => r.IdUsuarioResponsable == usuario);
             }
 
+            var totalRegistros = await query.CountAsync();
+
             var responsables = await query
                 .OrderBy(r => r.CategoriaTicket.Nombre)
                 .ThenBy(r => r.UsuarioResponsable.NombreCompleto)
+                .Skip((pagina - 1) * tamanoPagina)
+                .Take(tamanoPagina)
                 .ToListAsync();
 
-            return Ok(_mapper.Map<IEnumerable<CategoriaResponsableDto>>(responsables));
+            var response = new ResultadoPaginadoDto<CategoriaResponsableDto>
+            {
+                Pagina = pagina,
+                TamanoPagina = tamanoPagina,
+                TotalRegistros = totalRegistros,
+                TotalPaginas = (int)Math.Ceiling(totalRegistros / (double)tamanoPagina),
+                Datos = _mapper.Map<IEnumerable<CategoriaResponsableDto>>(responsables)
+            };
+
+            return Ok(response);
         }
 
         [HttpGet("{id:int}")]

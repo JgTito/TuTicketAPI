@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TuTicketAPI.Authorization;
+using TuTicketAPI.Dtos.Comun;
 using TuTicketAPI.Dtos.SlaPolitica;
 using TuTicketAPI.Models;
 
@@ -23,8 +24,23 @@ namespace TuTicketAPI.Controllers
         }
 
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<SlaPoliticaDto>>> GetSlaPoliticas([FromQuery] bool incluirInactivos = false)
+        public async Task<ActionResult<ResultadoPaginadoDto<SlaPoliticaDto>>> GetSlaPoliticas(
+            [FromQuery] bool incluirInactivos = false,
+            [FromQuery] int pagina = 1,
+            [FromQuery] int tamanoPagina = 10)
         {
+            if (pagina < 1)
+            {
+                ModelState.AddModelError(nameof(pagina), "La pagina debe ser mayor o igual a 1.");
+                return ValidationProblem(ModelState);
+            }
+
+            if (tamanoPagina < 1 || tamanoPagina > 100)
+            {
+                ModelState.AddModelError(nameof(tamanoPagina), "El tamano de pagina debe estar entre 1 y 100.");
+                return ValidationProblem(ModelState);
+            }
+
             var query = _context.SlaPoliticas.AsNoTracking();
 
             if (!incluirInactivos)
@@ -32,11 +48,24 @@ namespace TuTicketAPI.Controllers
                 query = query.Where(s => s.Activo);
             }
 
+            var totalRegistros = await query.CountAsync();
+
             var politicas = await query
                 .OrderBy(s => s.Nombre)
+                .Skip((pagina - 1) * tamanoPagina)
+                .Take(tamanoPagina)
                 .ToListAsync();
 
-            return Ok(_mapper.Map<IEnumerable<SlaPoliticaDto>>(politicas));
+            var response = new ResultadoPaginadoDto<SlaPoliticaDto>
+            {
+                Pagina = pagina,
+                TamanoPagina = tamanoPagina,
+                TotalRegistros = totalRegistros,
+                TotalPaginas = (int)Math.Ceiling(totalRegistros / (double)tamanoPagina),
+                Datos = _mapper.Map<IEnumerable<SlaPoliticaDto>>(politicas)
+            };
+
+            return Ok(response);
         }
 
         [HttpGet("{id:int}")]

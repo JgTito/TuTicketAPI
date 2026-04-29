@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TuTicketAPI.Authorization;
+using TuTicketAPI.Dtos.Comun;
 using TuTicketAPI.Dtos.SlaRegla;
 using TuTicketAPI.Models;
 
@@ -27,8 +28,22 @@ namespace TuTicketAPI.Controllers
             [FromQuery] bool incluirInactivos = false,
             [FromQuery] int? idSlaPolitica = null,
             [FromQuery] int? idPrioridadTicket = null,
-            [FromQuery] int? idCategoriaTicket = null)
+            [FromQuery] int? idCategoriaTicket = null,
+            [FromQuery] int pagina = 1,
+            [FromQuery] int tamanoPagina = 10)
         {
+            if (pagina < 1)
+            {
+                ModelState.AddModelError(nameof(pagina), "La pagina debe ser mayor o igual a 1.");
+                return ValidationProblem(ModelState);
+            }
+
+            if (tamanoPagina < 1 || tamanoPagina > 100)
+            {
+                ModelState.AddModelError(nameof(tamanoPagina), "El tamano de pagina debe estar entre 1 y 100.");
+                return ValidationProblem(ModelState);
+            }
+
             var query = _context.SlaReglas
                 .Include(s => s.SlaPolitica)
                 .Include(s => s.PrioridadTicket)
@@ -55,13 +70,26 @@ namespace TuTicketAPI.Controllers
                 query = query.Where(s => s.IdCategoriaTicket == idCategoriaTicket.Value);
             }
 
+            var totalRegistros = await query.CountAsync();
+
             var reglas = await query
                 .OrderBy(s => s.SlaPolitica.Nombre)
                 .ThenBy(s => s.PrioridadTicket.Nivel)
                 .ThenBy(s => s.CategoriaTicket == null ? string.Empty : s.CategoriaTicket.Nombre)
+                .Skip((pagina - 1) * tamanoPagina)
+                .Take(tamanoPagina)
                 .ToListAsync();
 
-            return Ok(_mapper.Map<IEnumerable<SlaReglaDto>>(reglas));
+            var response = new ResultadoPaginadoDto<SlaReglaDto>
+            {
+                Pagina = pagina,
+                TamanoPagina = tamanoPagina,
+                TotalRegistros = totalRegistros,
+                TotalPaginas = (int)Math.Ceiling(totalRegistros / (double)tamanoPagina),
+                Datos = _mapper.Map<IEnumerable<SlaReglaDto>>(reglas)
+            };
+
+            return Ok(response);
         }
 
         [HttpGet("{id:int}")]

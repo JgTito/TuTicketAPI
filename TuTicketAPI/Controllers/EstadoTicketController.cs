@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TuTicketAPI.Authorization;
+using TuTicketAPI.Dtos.Comun;
 using TuTicketAPI.Dtos.EstadoTicket;
 using TuTicketAPI.Models;
 
@@ -23,8 +24,23 @@ namespace TuTicketAPI.Controllers
         }
 
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<EstadoTicketDto>>> GetEstadosTicket([FromQuery] bool incluirInactivos = false)
+        public async Task<ActionResult<ResultadoPaginadoDto<EstadoTicketDto>>> GetEstadosTicket(
+            [FromQuery] bool incluirInactivos = false,
+            [FromQuery] int pagina = 1,
+            [FromQuery] int tamanoPagina = 5)
         {
+            if (pagina < 1)
+            {
+                ModelState.AddModelError(nameof(pagina), "La pagina debe ser mayor o igual a 1.");
+                return ValidationProblem(ModelState);
+            }
+
+            if (tamanoPagina < 1 || tamanoPagina > 100)
+            {
+                ModelState.AddModelError(nameof(tamanoPagina), "El tamano de pagina debe estar entre 1 y 100.");
+                return ValidationProblem(ModelState);
+            }
+
             var query = _context.EstadoTickets.AsNoTracking();
 
             if (!incluirInactivos)
@@ -32,12 +48,25 @@ namespace TuTicketAPI.Controllers
                 query = query.Where(e => e.Activo);
             }
 
+            var totalRegistros = await query.CountAsync();
+
             var estados = await query
                 .OrderBy(e => e.Orden)
                 .ThenBy(e => e.Nombre)
+                .Skip((pagina - 1) * tamanoPagina)
+                .Take(tamanoPagina)
                 .ToListAsync();
 
-            return Ok(_mapper.Map<IEnumerable<EstadoTicketDto>>(estados));
+            var response = new ResultadoPaginadoDto<EstadoTicketDto>
+            {
+                Pagina = pagina,
+                TamanoPagina = tamanoPagina,
+                TotalRegistros = totalRegistros,
+                TotalPaginas = (int)Math.Ceiling(totalRegistros / (double)tamanoPagina),
+                Datos = _mapper.Map<IEnumerable<EstadoTicketDto>>(estados)
+            };
+
+            return Ok(response);
         }
 
         [HttpGet("{id:int}")]
