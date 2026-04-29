@@ -1,26 +1,27 @@
-using System.Security.Claims;
 using AutoMapper;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using TuTicketAPI.Authorization;
 using TuTicketAPI.Dtos.TicketSla;
 using TuTicketAPI.Models;
+using TuTicketAPI.Services.Tickets;
 
 namespace TuTicketAPI.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
-    public class TicketSlaController : ControllerBase
+    public class TicketSlaController : ApiControllerBase
     {
         private readonly ApplicationDbContext _context;
         private readonly IMapper _mapper;
+        private readonly ITicketAccessService _ticketAccessService;
 
-        public TicketSlaController(ApplicationDbContext context, IMapper mapper)
+        public TicketSlaController(ApplicationDbContext context, IMapper mapper, ITicketAccessService ticketAccessService)
         {
             _context = context;
             _mapper = mapper;
+            _ticketAccessService = ticketAccessService;
         }
 
         [HttpGet("/api/Ticket/{idTicket:int}/sla")]
@@ -28,7 +29,7 @@ namespace TuTicketAPI.Controllers
             [FromRoute] int idTicket,
             [FromQuery] bool incluirInactivos = false)
         {
-            if (!await PuedeVerTicket(idTicket))
+            if (!await _ticketAccessService.PuedeVerTicket(idTicket))
             {
                 return Forbid();
             }
@@ -61,7 +62,7 @@ namespace TuTicketAPI.Controllers
                 return NotFound();
             }
 
-            if (!await PuedeVerTicket(sla.IdTicket))
+            if (!await _ticketAccessService.PuedeVerTicket(sla.IdTicket))
             {
                 return Forbid();
             }
@@ -74,7 +75,7 @@ namespace TuTicketAPI.Controllers
         {
             var ahora = DateTime.Now;
             var query = SlasConReferencias().AsNoTracking();
-            query = AplicarFiltroAcceso(query);
+            query = _ticketAccessService.AplicarFiltroAcceso(query);
 
             if (soloActivos)
             {
@@ -105,7 +106,7 @@ namespace TuTicketAPI.Controllers
                 return NotFound();
             }
 
-            if (!await PuedeVerTicket(sla.IdTicket))
+            if (!await _ticketAccessService.PuedeVerTicket(sla.IdTicket))
             {
                 return Forbid();
             }
@@ -143,7 +144,7 @@ namespace TuTicketAPI.Controllers
                 return NotFound();
             }
 
-            if (!await PuedeVerTicket(sla.IdTicket))
+            if (!await _ticketAccessService.PuedeVerTicket(sla.IdTicket))
             {
                 return Forbid();
             }
@@ -201,44 +202,6 @@ namespace TuTicketAPI.Controllers
                     .ThenInclude(r => r.CategoriaTicket);
         }
 
-        private IQueryable<TicketSla> AplicarFiltroAcceso(IQueryable<TicketSla> query)
-        {
-            var idUsuario = User.FindFirstValue(ClaimTypes.NameIdentifier);
-
-            if (User.IsInRole(AppRoles.Administrador))
-            {
-                return query;
-            }
-
-            if (idUsuario is null)
-            {
-                return query.Where(s => false);
-            }
-
-            if (EsSolicitanteSinPrivilegios())
-            {
-                query = query.Where(s => s.Ticket.IdUsuarioSolicitante == idUsuario);
-            }
-            else if (EsResolvedorSinAdministrador())
-            {
-                query = query.Where(s =>
-                    s.Ticket.IdUsuarioAsignado == idUsuario ||
-                    _context.EquipoSoporteUsuarios.Any(eu =>
-                        eu.Activo &&
-                        eu.IdUsuario == idUsuario &&
-                        _context.CategoriaEquipoSoportes.Any(ce =>
-                            ce.Activo &&
-                            ce.IdEquipoSoporte == eu.IdEquipoSoporte &&
-                            ce.IdCategoriaTicket == s.Ticket.SubcategoriaTicket.IdCategoriaTicket)));
-            }
-            else
-            {
-                query = query.Where(s => false);
-            }
-
-            return query;
-        }
-
         private async Task<bool> UsuarioActivoExiste(string idUsuario, string campo)
         {
             if (string.IsNullOrWhiteSpace(idUsuario) ||
@@ -270,53 +233,5 @@ namespace TuTicketAPI.Controllers
             request.Comentario = string.IsNullOrWhiteSpace(request.Comentario) ? null : request.Comentario.Trim();
         }
 
-        private async Task<bool> PuedeVerTicket(int idTicket)
-        {
-            if (User.IsInRole(AppRoles.Administrador))
-            {
-                return await _context.Tickets.AnyAsync(t => t.IdTicket == idTicket);
-            }
-
-            var idUsuario = User.FindFirstValue(ClaimTypes.NameIdentifier);
-
-            if (idUsuario is null)
-            {
-                return false;
-            }
-
-            if (EsSolicitanteSinPrivilegios())
-            {
-                return await _context.Tickets.AnyAsync(t => t.IdTicket == idTicket && t.IdUsuarioSolicitante == idUsuario);
-            }
-
-            if (EsResolvedorSinAdministrador())
-            {
-                return await _context.Tickets.AnyAsync(t =>
-                    t.IdTicket == idTicket &&
-                    (t.IdUsuarioAsignado == idUsuario ||
-                        _context.EquipoSoporteUsuarios.Any(eu =>
-                            eu.Activo &&
-                            eu.IdUsuario == idUsuario &&
-                            _context.CategoriaEquipoSoportes.Any(ce =>
-                                ce.Activo &&
-                                ce.IdEquipoSoporte == eu.IdEquipoSoporte &&
-                                ce.IdCategoriaTicket == t.SubcategoriaTicket.IdCategoriaTicket))));
-            }
-
-            return false;
-        }
-
-        private bool EsSolicitanteSinPrivilegios()
-        {
-            return User.IsInRole(AppRoles.Solicitante) &&
-                !User.IsInRole(AppRoles.Administrador) &&
-                !User.IsInRole(AppRoles.ResolvedorTicket);
-        }
-
-        private bool EsResolvedorSinAdministrador()
-        {
-            return User.IsInRole(AppRoles.ResolvedorTicket) &&
-                !User.IsInRole(AppRoles.Administrador);
-        }
     }
 }

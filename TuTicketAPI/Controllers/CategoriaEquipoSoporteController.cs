@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TuTicketAPI.Authorization;
 using TuTicketAPI.Dtos.CategoriaEquipoSoporte;
+using TuTicketAPI.Dtos.Comun;
 using TuTicketAPI.Models;
 
 namespace TuTicketAPI.Controllers
@@ -11,7 +12,7 @@ namespace TuTicketAPI.Controllers
     [ApiController]
     [Route("api/[controller]")]
     [Authorize(Roles = AppRoles.Administrador)]
-    public class CategoriaEquipoSoporteController : ControllerBase
+    public class CategoriaEquipoSoporteController : ApiControllerBase
     {
         private readonly ApplicationDbContext _context;
         private readonly IMapper _mapper;
@@ -23,11 +24,19 @@ namespace TuTicketAPI.Controllers
         }
 
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<CategoriaEquipoSoporteDto>>> GetCategoriaEquipoSoportes(
+        public async Task<ActionResult<ResultadoPaginadoDto<CategoriaEquipoSoporteDto>>> GetCategoriaEquipoSoportes(
             [FromQuery] bool incluirInactivos = false,
             [FromQuery] int? idCategoriaTicket = null,
-            [FromQuery] int? idEquipoSoporte = null)
+            [FromQuery] int? idEquipoSoporte = null,
+            [FromQuery] int pagina = 1,
+            [FromQuery] int tamanoPagina = 5)
         {
+            var errorPaginacion = ValidarPaginacion(pagina, tamanoPagina);
+            if (errorPaginacion is not null)
+            {
+                return errorPaginacion;
+            }
+
             var query = _context.CategoriaEquipoSoportes
                 .Include(c => c.CategoriaTicket)
                 .Include(c => c.EquipoSoporte)
@@ -48,12 +57,22 @@ namespace TuTicketAPI.Controllers
                 query = query.Where(c => c.IdEquipoSoporte == idEquipoSoporte.Value);
             }
 
+            var totalRegistros = await query.CountAsync();
+
             var categoriasEquipos = await query
                 .OrderBy(c => c.CategoriaTicket.Nombre)
                 .ThenBy(c => c.EquipoSoporte.Nombre)
+                .Skip((pagina - 1) * tamanoPagina)
+                .Take(tamanoPagina)
                 .ToListAsync();
 
-            return Ok(_mapper.Map<IEnumerable<CategoriaEquipoSoporteDto>>(categoriasEquipos));
+            var response = CrearResultadoPaginado(
+                pagina,
+                tamanoPagina,
+                totalRegistros,
+                _mapper.Map<IEnumerable<CategoriaEquipoSoporteDto>>(categoriasEquipos));
+
+            return Ok(response);
         }
 
         [HttpGet("{id:int}")]

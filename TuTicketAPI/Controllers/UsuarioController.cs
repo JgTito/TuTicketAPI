@@ -15,7 +15,7 @@ namespace TuTicketAPI.Controllers
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
-    public class UsuarioController : ControllerBase
+    public class UsuarioController : ApiControllerBase
     {
         private const string RolSolicitante = "Solicitante";
 

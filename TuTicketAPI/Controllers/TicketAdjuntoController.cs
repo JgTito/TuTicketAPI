@@ -1,29 +1,32 @@
-using System.Security.Claims;
 using AutoMapper;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using TuTicketAPI.Authorization;
 using TuTicketAPI.Dtos.Comun;
 using TuTicketAPI.Dtos.TicketAdjunto;
 using TuTicketAPI.Models;
+using TuTicketAPI.Services.Tickets;
 
 namespace TuTicketAPI.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
-    public class TicketAdjuntoController : ControllerBase
+    public class TicketAdjuntoController : ApiControllerBase
     {
         private readonly ApplicationDbContext _context;
         private readonly IMapper _mapper;
         private readonly IWebHostEnvironment _environment;
+        private readonly ITicketAccessService _ticketAccessService;
+        private readonly ITicketAttachmentService _ticketAttachmentService;
 
-        public TicketAdjuntoController(ApplicationDbContext context, IMapper mapper, IWebHostEnvironment environment)
+        public TicketAdjuntoController(ApplicationDbContext context, IMapper mapper, IWebHostEnvironment environment, ITicketAccessService ticketAccessService, ITicketAttachmentService ticketAttachmentService)
         {
             _context = context;
             _mapper = mapper;
             _environment = environment;
+            _ticketAccessService = ticketAccessService;
+            _ticketAttachmentService = ticketAttachmentService;
         }
 
         [HttpGet("/api/Ticket/{idTicket:int}/adjuntos")]
@@ -31,21 +34,15 @@ namespace TuTicketAPI.Controllers
             [FromRoute] int idTicket,
             [FromQuery] bool incluirInactivos = false,
             [FromQuery] int pagina = 1,
-            [FromQuery] int tamanoPagina = 10)
+            [FromQuery] int tamanoPagina = 5)
         {
-            if (pagina < 1)
+            var errorPaginacion = ValidarPaginacion(pagina, tamanoPagina);
+            if (errorPaginacion is not null)
             {
-                ModelState.AddModelError(nameof(pagina), "La pagina debe ser mayor o igual a 1.");
-                return ValidationProblem(ModelState);
+                return errorPaginacion;
             }
 
-            if (tamanoPagina < 1 || tamanoPagina > 100)
-            {
-                ModelState.AddModelError(nameof(tamanoPagina), "El tamano de pagina debe estar entre 1 y 100.");
-                return ValidationProblem(ModelState);
-            }
-
-            if (!await PuedeVerTicket(idTicket))
+            if (!await _ticketAccessService.PuedeVerTicket(idTicket))
             {
                 return Forbid();
             }
@@ -67,14 +64,11 @@ namespace TuTicketAPI.Controllers
                 .Take(tamanoPagina)
                 .ToListAsync();
 
-            var response = new ResultadoPaginadoDto<TicketAdjuntoDto>
-            {
-                Pagina = pagina,
-                TamanoPagina = tamanoPagina,
-                TotalRegistros = totalRegistros,
-                TotalPaginas = (int)Math.Ceiling(totalRegistros / (double)tamanoPagina),
-                Datos = _mapper.Map<IEnumerable<TicketAdjuntoDto>>(adjuntos)
-            };
+            var response = CrearResultadoPaginado(
+                pagina,
+                tamanoPagina,
+                totalRegistros,
+                _mapper.Map<IEnumerable<TicketAdjuntoDto>>(adjuntos));
 
             return Ok(response);
         }
@@ -91,7 +85,7 @@ namespace TuTicketAPI.Controllers
                 return NotFound();
             }
 
-            if (!await PuedeVerTicket(adjunto.IdTicket))
+            if (!await _ticketAccessService.PuedeVerTicket(adjunto.IdTicket))
             {
                 return Forbid();
             }
@@ -105,7 +99,7 @@ namespace TuTicketAPI.Controllers
         {
             Normalizar(request);
 
-            if (!await PuedeVerTicket(idTicket))
+            if (!await _ticketAccessService.PuedeVerTicket(idTicket))
             {
                 return Forbid();
             }
@@ -120,47 +114,18 @@ namespace TuTicketAPI.Controllers
                 return ValidationProblem(ModelState);
             }
 
-            var directorioTicket = Path.Combine(_environment.ContentRootPath, "Uploads", "Tickets", idTicket.ToString());
-            Directory.CreateDirectory(directorioTicket);
-
             var rutasGuardadas = new List<string>();
-            var adjuntos = new List<TicketAdjunto>();
+            List<TicketAdjunto> adjuntos;
 
             try
             {
-                foreach (var archivo in request.Archivos)
-                {
-                    var extension = Path.GetExtension(archivo.FileName);
-                    var nombreGuardado = $"{Guid.NewGuid():N}{extension}";
-                    var rutaFisica = Path.Combine(directorioTicket, nombreGuardado);
-
-                    await using (var stream = System.IO.File.Create(rutaFisica))
-                    {
-                        await archivo.CopyToAsync(stream);
-                    }
-
-                    rutasGuardadas.Add(rutaFisica);
-
-                    adjuntos.Add(new TicketAdjunto
-                    {
-                        IdTicket = idTicket,
-                        NombreArchivoOriginal = Path.GetFileName(archivo.FileName),
-                        NombreArchivoGuardado = nombreGuardado,
-                        RutaArchivo = rutaFisica,
-                        TipoContenido = string.IsNullOrWhiteSpace(archivo.ContentType) ? "application/octet-stream" : archivo.ContentType,
-                        Extension = string.IsNullOrWhiteSpace(extension) ? null : extension,
-                        PesoBytes = archivo.Length,
-                        IdUsuarioSubida = request.IdUsuarioSubida,
-                        Activo = true
-                    });
-                }
-
+                adjuntos = await _ticketAttachmentService.GuardarAdjuntos(idTicket, request.Archivos, request.IdUsuarioSubida, rutasGuardadas);
                 _context.TicketAdjuntos.AddRange(adjuntos);
                 await _context.SaveChangesAsync();
             }
             catch
             {
-                EliminarArchivosGuardados(rutasGuardadas);
+                _ticketAttachmentService.EliminarArchivosGuardados(rutasGuardadas);
                 throw;
             }
 
@@ -187,7 +152,7 @@ namespace TuTicketAPI.Controllers
                 return NotFound();
             }
 
-            if (!await PuedeVerTicket(adjunto.IdTicket))
+            if (!await _ticketAccessService.PuedeVerTicket(adjunto.IdTicket))
             {
                 return Forbid();
             }
@@ -216,7 +181,7 @@ namespace TuTicketAPI.Controllers
                 return NotFound();
             }
 
-            if (!await PuedeVerTicket(adjunto.IdTicket))
+            if (!await _ticketAccessService.PuedeVerTicket(adjunto.IdTicket))
             {
                 return Forbid();
             }
@@ -265,88 +230,15 @@ namespace TuTicketAPI.Controllers
 
         private bool ArchivosValidos(IReadOnlyList<IFormFile> archivos)
         {
-            if (archivos.Count == 0)
+            var errores = _ticketAttachmentService.ValidarArchivos(archivos, requiereAlMenosUno: true);
+
+            for (var i = 0; i < errores.Count; i++)
             {
-                ModelState.AddModelError(nameof(CrearTicketAdjuntoDto.Archivos), "Debe adjuntar al menos un archivo.");
-                return false;
+                ModelState.AddModelError($"{nameof(CrearTicketAdjuntoDto.Archivos)}[{i}]", errores[i]);
             }
 
-            for (var i = 0; i < archivos.Count; i++)
-            {
-                if (archivos[i].Length == 0)
-                {
-                    ModelState.AddModelError($"{nameof(CrearTicketAdjuntoDto.Archivos)}[{i}]", "El archivo esta vacio.");
-                }
-            }
-
-            return ModelState.IsValid;
+            return errores.Count == 0;
         }
 
-        private static void EliminarArchivosGuardados(IEnumerable<string> rutasGuardadas)
-        {
-            foreach (var ruta in rutasGuardadas)
-            {
-                try
-                {
-                    if (System.IO.File.Exists(ruta))
-                    {
-                        System.IO.File.Delete(ruta);
-                    }
-                }
-                catch
-                {
-                    // La limpieza de archivos no debe ocultar el error original del upload.
-                }
-            }
-        }
-
-        private async Task<bool> PuedeVerTicket(int idTicket)
-        {
-            if (User.IsInRole(AppRoles.Administrador))
-            {
-                return await _context.Tickets.AnyAsync(t => t.IdTicket == idTicket);
-            }
-
-            var idUsuario = User.FindFirstValue(ClaimTypes.NameIdentifier);
-
-            if (idUsuario is null)
-            {
-                return false;
-            }
-
-            if (EsSolicitanteSinPrivilegios())
-            {
-                return await _context.Tickets.AnyAsync(t => t.IdTicket == idTicket && t.IdUsuarioSolicitante == idUsuario);
-            }
-
-            if (EsResolvedorSinAdministrador())
-            {
-                return await _context.Tickets.AnyAsync(t =>
-                    t.IdTicket == idTicket &&
-                    (t.IdUsuarioAsignado == idUsuario ||
-                        _context.EquipoSoporteUsuarios.Any(eu =>
-                            eu.Activo &&
-                            eu.IdUsuario == idUsuario &&
-                            _context.CategoriaEquipoSoportes.Any(ce =>
-                                ce.Activo &&
-                                ce.IdEquipoSoporte == eu.IdEquipoSoporte &&
-                                ce.IdCategoriaTicket == t.SubcategoriaTicket.IdCategoriaTicket))));
-            }
-
-            return false;
-        }
-
-        private bool EsSolicitanteSinPrivilegios()
-        {
-            return User.IsInRole(AppRoles.Solicitante) &&
-                !User.IsInRole(AppRoles.Administrador) &&
-                !User.IsInRole(AppRoles.ResolvedorTicket);
-        }
-
-        private bool EsResolvedorSinAdministrador()
-        {
-            return User.IsInRole(AppRoles.ResolvedorTicket) &&
-                !User.IsInRole(AppRoles.Administrador);
-        }
     }
 }

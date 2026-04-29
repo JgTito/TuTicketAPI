@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using AutoMapper;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -6,21 +5,24 @@ using Microsoft.EntityFrameworkCore;
 using TuTicketAPI.Authorization;
 using TuTicketAPI.Dtos.TicketRelacion;
 using TuTicketAPI.Models;
+using TuTicketAPI.Services.Tickets;
 
 namespace TuTicketAPI.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
-    public class TicketRelacionController : ControllerBase
+    public class TicketRelacionController : ApiControllerBase
     {
         private readonly ApplicationDbContext _context;
         private readonly IMapper _mapper;
+        private readonly ITicketAccessService _ticketAccessService;
 
-        public TicketRelacionController(ApplicationDbContext context, IMapper mapper)
+        public TicketRelacionController(ApplicationDbContext context, IMapper mapper, ITicketAccessService ticketAccessService)
         {
             _context = context;
             _mapper = mapper;
+            _ticketAccessService = ticketAccessService;
         }
 
         [HttpGet("/api/Ticket/{idTicket:int}/relaciones")]
@@ -28,7 +30,7 @@ namespace TuTicketAPI.Controllers
             [FromRoute] int idTicket,
             [FromQuery] bool incluirInactivos = false)
         {
-            if (!await PuedeVerTicket(idTicket))
+            if (!await _ticketAccessService.PuedeVerTicket(idTicket))
             {
                 return Forbid();
             }
@@ -74,7 +76,7 @@ namespace TuTicketAPI.Controllers
         {
             Normalizar(request);
 
-            if (!await PuedeVerTicket(idTicket))
+            if (!await _ticketAccessService.PuedeVerTicket(idTicket))
             {
                 return Forbid();
             }
@@ -277,57 +279,8 @@ namespace TuTicketAPI.Controllers
                 return true;
             }
 
-            return await PuedeVerTicket(relacion.IdTicketOrigen) ||
-                await PuedeVerTicket(relacion.IdTicketRelacionado);
-        }
-
-        private async Task<bool> PuedeVerTicket(int idTicket)
-        {
-            if (User.IsInRole(AppRoles.Administrador))
-            {
-                return await _context.Tickets.AnyAsync(t => t.IdTicket == idTicket);
-            }
-
-            var idUsuario = User.FindFirstValue(ClaimTypes.NameIdentifier);
-
-            if (idUsuario is null)
-            {
-                return false;
-            }
-
-            if (EsSolicitanteSinPrivilegios())
-            {
-                return await _context.Tickets.AnyAsync(t => t.IdTicket == idTicket && t.IdUsuarioSolicitante == idUsuario);
-            }
-
-            if (EsResolvedorSinAdministrador())
-            {
-                return await _context.Tickets.AnyAsync(t =>
-                    t.IdTicket == idTicket &&
-                    (t.IdUsuarioAsignado == idUsuario ||
-                        _context.EquipoSoporteUsuarios.Any(eu =>
-                            eu.Activo &&
-                            eu.IdUsuario == idUsuario &&
-                            _context.CategoriaEquipoSoportes.Any(ce =>
-                                ce.Activo &&
-                                ce.IdEquipoSoporte == eu.IdEquipoSoporte &&
-                                ce.IdCategoriaTicket == t.SubcategoriaTicket.IdCategoriaTicket))));
-            }
-
-            return false;
-        }
-
-        private bool EsSolicitanteSinPrivilegios()
-        {
-            return User.IsInRole(AppRoles.Solicitante) &&
-                !User.IsInRole(AppRoles.Administrador) &&
-                !User.IsInRole(AppRoles.ResolvedorTicket);
-        }
-
-        private bool EsResolvedorSinAdministrador()
-        {
-            return User.IsInRole(AppRoles.ResolvedorTicket) &&
-                !User.IsInRole(AppRoles.Administrador);
+            return await _ticketAccessService.PuedeVerTicket(relacion.IdTicketOrigen) ||
+                await _ticketAccessService.PuedeVerTicket(relacion.IdTicketRelacionado);
         }
     }
 }

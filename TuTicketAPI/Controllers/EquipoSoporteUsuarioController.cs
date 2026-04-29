@@ -12,7 +12,7 @@ namespace TuTicketAPI.Controllers
     [ApiController]
     [Route("api/[controller]")]
     [Authorize(Roles = AppRoles.Administrador)]
-    public class EquipoSoporteUsuarioController : ControllerBase
+    public class EquipoSoporteUsuarioController : ApiControllerBase
     {
         private readonly ApplicationDbContext _context;
         private readonly IMapper _mapper;
@@ -30,18 +30,12 @@ namespace TuTicketAPI.Controllers
             [FromQuery] string? idUsuario = null,
             [FromQuery] bool? esLider = null,
             [FromQuery] int pagina = 1,
-            [FromQuery] int tamanoPagina = 10)
+            [FromQuery] int tamanoPagina = 5)
         {
-            if (pagina < 1)
+            var errorPaginacion = ValidarPaginacion(pagina, tamanoPagina);
+            if (errorPaginacion is not null)
             {
-                ModelState.AddModelError(nameof(pagina), "La pagina debe ser mayor o igual a 1.");
-                return ValidationProblem(ModelState);
-            }
-
-            if (tamanoPagina < 1 || tamanoPagina > 100)
-            {
-                ModelState.AddModelError(nameof(tamanoPagina), "El tamano de pagina debe estar entre 1 y 100.");
-                return ValidationProblem(ModelState);
+                return errorPaginacion;
             }
 
             var query = _context.EquipoSoporteUsuarios
@@ -80,14 +74,11 @@ namespace TuTicketAPI.Controllers
                 .Take(tamanoPagina)
                 .ToListAsync();
 
-            var response = new ResultadoPaginadoDto<EquipoSoporteUsuarioDto>
-            {
-                Pagina = pagina,
-                TamanoPagina = tamanoPagina,
-                TotalRegistros = totalRegistros,
-                TotalPaginas = (int)Math.Ceiling(totalRegistros / (double)tamanoPagina),
-                Datos = _mapper.Map<IEnumerable<EquipoSoporteUsuarioDto>>(usuarios)
-            };
+            var response = CrearResultadoPaginado(
+                pagina,
+                tamanoPagina,
+                totalRegistros,
+                _mapper.Map<IEnumerable<EquipoSoporteUsuarioDto>>(usuarios));
 
             return Ok(response);
         }

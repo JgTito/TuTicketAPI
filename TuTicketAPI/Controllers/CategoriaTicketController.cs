@@ -12,7 +12,7 @@ namespace TuTicketAPI.Controllers
     [ApiController]
     [Route("api/[controller]")]
     
-    public class CategoriaTicketController : ControllerBase
+    public class CategoriaTicketController : ApiControllerBase
     {
         private readonly ApplicationDbContext _context;
         private readonly IMapper _mapper;
@@ -27,18 +27,12 @@ namespace TuTicketAPI.Controllers
         public async Task<ActionResult<ResultadoPaginadoDto<CategoriaTicketDto>>> GetCategoriasTicket(
             [FromQuery] bool incluirInactivos = false,
             [FromQuery] int pagina = 1,
-            [FromQuery] int tamanoPagina = 10)
+            [FromQuery] int tamanoPagina = 5)
         {
-            if (pagina < 1)
+            var errorPaginacion = ValidarPaginacion(pagina, tamanoPagina);
+            if (errorPaginacion is not null)
             {
-                ModelState.AddModelError(nameof(pagina), "La pagina debe ser mayor o igual a 1.");
-                return ValidationProblem(ModelState);
-            }
-
-            if (tamanoPagina < 1 || tamanoPagina > 100)
-            {
-                ModelState.AddModelError(nameof(tamanoPagina), "El tamano de pagina debe estar entre 1 y 100.");
-                return ValidationProblem(ModelState);
+                return errorPaginacion;
             }
 
             var query = _context.CategoriaTickets.AsNoTracking();
@@ -56,14 +50,11 @@ namespace TuTicketAPI.Controllers
                 .Take(tamanoPagina)
                 .ToListAsync();
 
-            var response = new ResultadoPaginadoDto<CategoriaTicketDto>
-            {
-                Pagina = pagina,
-                TamanoPagina = tamanoPagina,
-                TotalRegistros = totalRegistros,
-                TotalPaginas = (int)Math.Ceiling(totalRegistros / (double)tamanoPagina),
-                Datos = _mapper.Map<IEnumerable<CategoriaTicketDto>>(categorias)
-            };
+            var response = CrearResultadoPaginado(
+                pagina,
+                tamanoPagina,
+                totalRegistros,
+                _mapper.Map<IEnumerable<CategoriaTicketDto>>(categorias));
 
             return Ok(response);
         }

@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using AutoMapper;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -12,7 +11,7 @@ namespace TuTicketAPI.Controllers
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
-    public class NotificacionController : ControllerBase
+    public class NotificacionController : ApiControllerBase
     {
         private readonly ApplicationDbContext _context;
         private readonly IMapper _mapper;
@@ -141,7 +140,7 @@ namespace TuTicketAPI.Controllers
 
             if (EsSolicitanteSinPrivilegios())
             {
-                var idUsuarioActual = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                var idUsuarioActual = ObtenerIdUsuarioAutenticado();
 
                 if (idUsuarioActual is null || usuario != idUsuarioActual)
                 {
@@ -199,7 +198,7 @@ namespace TuTicketAPI.Controllers
 
         private IQueryable<Notificacion> AplicarFiltroSolicitante(IQueryable<Notificacion> query)
         {
-            var idUsuario = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var idUsuario = ObtenerIdUsuarioAutenticado();
 
             if (User.IsInRole(AppRoles.Administrador) || User.IsInRole(AppRoles.ResolvedorTicket))
             {
@@ -220,7 +219,7 @@ namespace TuTicketAPI.Controllers
 
         private bool PuedeVerNotificacion(Notificacion notificacion)
         {
-            var idUsuario = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var idUsuario = ObtenerIdUsuarioAutenticado();
 
             return !EsSolicitanteSinPrivilegios() ||
                 (idUsuario is not null && notificacion.IdUsuarioDestino == idUsuario);

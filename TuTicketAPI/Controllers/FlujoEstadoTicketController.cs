@@ -11,7 +11,7 @@ namespace TuTicketAPI.Controllers
     [ApiController]
     [Route("api/[controller]")]
     [Authorize(Roles = AppRoles.Administrador)]
-    public class FlujoEstadoTicketController : ControllerBase
+    public class FlujoEstadoTicketController : ApiControllerBase
     {
         private readonly ApplicationDbContext _context;
         private readonly IMapper _mapper;

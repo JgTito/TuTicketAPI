@@ -1,33 +1,37 @@
-using System.Security.Claims;
 using AutoMapper;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TuTicketAPI.Authorization;
+using TuTicketAPI.Constants;
 using TuTicketAPI.Dtos.Comun;
 using TuTicketAPI.Dtos.Ticket;
 using TuTicketAPI.Dtos.TicketHistorial;
+using TuTicketAPI.Enums;
 using TuTicketAPI.Models;
+using TuTicketAPI.Services.Tickets;
 
 namespace TuTicketAPI.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
-    public class TicketController : ControllerBase
+    public class TicketController : ApiControllerBase
     {
-        private const string EstadoInicialTicket = "Abierto";
-        private const string EstadoPendienteDerivacion = "Pendiente de derivación";
-
+       
         private readonly ApplicationDbContext _context;
         private readonly IMapper _mapper;
-        private readonly IWebHostEnvironment _environment;
+        private readonly ITicketAccessService _ticketAccessService;
+        private readonly ITicketAttachmentService _ticketAttachmentService;
+        private readonly ITicketHistoryService _ticketHistoryService;
 
-        public TicketController(ApplicationDbContext context, IMapper mapper, IWebHostEnvironment environment)
+        public TicketController(ApplicationDbContext context, IMapper mapper, ITicketAccessService ticketAccessService, ITicketAttachmentService ticketAttachmentService, ITicketHistoryService ticketHistoryService)
         {
             _context = context;
             _mapper = mapper;
-            _environment = environment;
+            _ticketAccessService = ticketAccessService;
+            _ticketAttachmentService = ticketAttachmentService;
+            _ticketHistoryService = ticketHistoryService;
         }
 
         [HttpGet]
@@ -50,18 +54,12 @@ namespace TuTicketAPI.Controllers
             [FromQuery] DateTime? fechaCierreDesde = null,
             [FromQuery] DateTime? fechaCierreHasta = null,
             [FromQuery] int pagina = 1,
-            [FromQuery] int tamanoPagina = 10)
+            [FromQuery] int tamanoPagina = 5)
         {
-            if (pagina < 1)
+            var errorPaginacion = ValidarPaginacion(pagina, tamanoPagina);
+            if (errorPaginacion is not null)
             {
-                ModelState.AddModelError(nameof(pagina), "La pagina debe ser mayor o igual a 1.");
-                return ValidationProblem(ModelState);
-            }
-
-            if (tamanoPagina < 1 || tamanoPagina > 100)
-            {
-                ModelState.AddModelError(nameof(tamanoPagina), "El tamano de pagina debe estar entre 1 y 100.");
-                return ValidationProblem(ModelState);
+                return errorPaginacion;
             }
 
             ValidarRangoFechas(fechaCreacionDesde, fechaCreacionHasta, nameof(fechaCreacionDesde), "creacion");
@@ -76,7 +74,7 @@ namespace TuTicketAPI.Controllers
             }
 
             var query = TicketsConReferencias().AsNoTracking();
-            query = AplicarFiltroAcceso(query);
+            query = _ticketAccessService.AplicarFiltroAcceso(query);
 
             if (!incluirInactivos)
             {
@@ -186,14 +184,11 @@ namespace TuTicketAPI.Controllers
                 .Take(tamanoPagina)
                 .ToListAsync();
 
-            var response = new ResultadoPaginadoDto<TicketDto>
-            {
-                Pagina = pagina,
-                TamanoPagina = tamanoPagina,
-                TotalRegistros = totalRegistros,
-                TotalPaginas = (int)Math.Ceiling(totalRegistros / (double)tamanoPagina),
-                Datos = _mapper.Map<IEnumerable<TicketDto>>(tickets)
-            };
+            var response = CrearResultadoPaginado(
+                pagina,
+                tamanoPagina,
+                totalRegistros,
+                _mapper.Map<IEnumerable<TicketDto>>(tickets));
 
             return Ok(response);
         }
@@ -210,7 +205,7 @@ namespace TuTicketAPI.Controllers
                 return NotFound();
             }
 
-            if (!PuedeVerTicket(ticket))
+            if (!await _ticketAccessService.PuedeVerTicket(ticket))
             {
                 return Forbid();
             }
@@ -222,21 +217,15 @@ namespace TuTicketAPI.Controllers
         public async Task<ActionResult<ResultadoPaginadoDto<TicketHistorialDto>>> GetHistorial(
             [FromRoute] int id,
             [FromQuery] int pagina = 1,
-            [FromQuery] int tamanoPagina = 10)
+            [FromQuery] int tamanoPagina = 5)
         {
-            if (pagina < 1)
+            var errorPaginacion = ValidarPaginacion(pagina, tamanoPagina);
+            if (errorPaginacion is not null)
             {
-                ModelState.AddModelError(nameof(pagina), "La pagina debe ser mayor o igual a 1.");
-                return ValidationProblem(ModelState);
+                return errorPaginacion;
             }
 
-            if (tamanoPagina < 1 || tamanoPagina > 100)
-            {
-                ModelState.AddModelError(nameof(tamanoPagina), "El tamano de pagina debe estar entre 1 y 100.");
-                return ValidationProblem(ModelState);
-            }
-
-            if (!await PuedeVerTicket(id))
+            if (!await _ticketAccessService.PuedeVerTicket(id))
             {
                 return Forbid();
             }
@@ -254,14 +243,11 @@ namespace TuTicketAPI.Controllers
                 .Take(tamanoPagina)
                 .ToListAsync();
 
-            var response = new ResultadoPaginadoDto<TicketHistorialDto>
-            {
-                Pagina = pagina,
-                TamanoPagina = tamanoPagina,
-                TotalRegistros = totalRegistros,
-                TotalPaginas = (int)Math.Ceiling(totalRegistros / (double)tamanoPagina),
-                Datos = _mapper.Map<IEnumerable<TicketHistorialDto>>(historial)
-            };
+            var response = CrearResultadoPaginado(
+                pagina,
+                tamanoPagina,
+                totalRegistros,
+                _mapper.Map<IEnumerable<TicketHistorialDto>>(historial));
 
             return Ok(response);
         }
@@ -278,7 +264,7 @@ namespace TuTicketAPI.Controllers
                 return NotFound();
             }
 
-            if (!await PuedeVerTicket(id))
+            if (!await _ticketAccessService.PuedeVerTicket(id))
             {
                 return Forbid();
             }
@@ -330,23 +316,8 @@ namespace TuTicketAPI.Controllers
                 return ValidationProblem(ModelState);
             }
 
-            if (!ArchivosValidos(request.Archivos))
+            if (!ArchivosValidos(request.Archivos, requiereAlMenosUno: false))
             {
-                return ValidationProblem(ModelState);
-            }
-
-            var estadoInicial = await ObtenerEstadoActivoPorNombre(EstadoInicialTicket);
-            var estadoPendienteDerivacion = await ObtenerEstadoActivoPorNombre(EstadoPendienteDerivacion);
-
-            if (estadoInicial is null)
-            {
-                ModelState.AddModelError("EstadoInicial", $"No existe el estado activo '{EstadoInicialTicket}'.");
-                return ValidationProblem(ModelState);
-            }
-
-            if (estadoPendienteDerivacion is null)
-            {
-                ModelState.AddModelError("EstadoPendienteDerivacion", $"No existe el estado activo '{EstadoPendienteDerivacion}'.");
                 return ValidationProblem(ModelState);
             }
 
@@ -358,12 +329,12 @@ namespace TuTicketAPI.Controllers
                 return ValidationProblem(ModelState);
             }
 
-            var nombreSolicitante = await ObtenerNombreUsuario(idUsuarioSolicitante);
-            var nombreResponsable = await ObtenerNombreUsuario(idUsuarioResponsable);
+            var nombreSolicitante = await _ticketHistoryService.ObtenerNombreUsuario(idUsuarioSolicitante);
+            var nombreResponsable = await _ticketHistoryService.ObtenerNombreUsuario(idUsuarioResponsable);
 
             var ticket = _mapper.Map<Ticket>(request);
             ticket.Codigo = await GenerarCodigo();
-            ticket.IdEstadoTicket = estadoInicial.IdEstadoTicket;
+            ticket.IdEstadoTicket = (int)EstadoTicketEnum.Abierto;
             ticket.IdUsuarioSolicitante = idUsuarioSolicitante;
             ticket.IdUsuarioAsignado = idUsuarioResponsable;
 
@@ -376,33 +347,34 @@ namespace TuTicketAPI.Controllers
                 _context.Tickets.Add(ticket);
                 await _context.SaveChangesAsync();
 
-                await AgregarAdjuntos(ticket.IdTicket, request.Archivos, idUsuarioSolicitante, rutasGuardadas);
+                var adjuntos = await _ticketAttachmentService.GuardarAdjuntos(ticket.IdTicket, request.Archivos, idUsuarioSolicitante, rutasGuardadas);
+                _context.TicketAdjuntos.AddRange(adjuntos);
 
-                _context.TicketHistoriales.Add(CrearHistorial(
+                _context.TicketHistoriales.Add(_ticketHistoryService.CrearHistorial(
                     ticket.IdTicket,
                     "Creacion",
                     null,
                     ticket.Codigo,
                     idUsuarioSolicitante,
-                    $"Ticket {ticket.Codigo} creado por {nombreSolicitante}. Estado inicial: {estadoInicial.Nombre}."));
+                    $"Ticket {ticket.Codigo} creado por {nombreSolicitante}. Estado inicial: {EstadoTicketNombres.Abierto}."));
 
-                _context.TicketHistoriales.Add(CrearHistorial(
+                _context.TicketHistoriales.Add(_ticketHistoryService.CrearHistorial(
                     ticket.IdTicket,
-                    "IdUsuarioAsignado",
+                    "Usuario asignado",
                     null,
                     idUsuarioResponsable,
                     idUsuarioSolicitante,
                     $"Responsable de categoria asignado automaticamente: {nombreResponsable}."));
 
-                _context.TicketHistoriales.Add(CrearHistorial(
+                _context.TicketHistoriales.Add(_ticketHistoryService.CrearHistorial(
                     ticket.IdTicket,
-                    "IdEstadoTicket",
-                    estadoInicial.Nombre,
-                    estadoPendienteDerivacion.Nombre,
+                    "Estado ticket",
+                    EstadoTicketNombres.Abierto,
+                    EstadoTicketNombres.PendienteDeDerivacion,
                     idUsuarioSolicitante,
-                    $"Ticket recibido por {nombreResponsable}, responsable de categoria. Cambio automatico de estado desde {estadoInicial.Nombre} a {estadoPendienteDerivacion.Nombre}."));
+                    $"Ticket recibido por {nombreResponsable}, responsable de categoria. Cambio automatico de estado desde {EstadoTicketNombres.Abierto} a {EstadoTicketNombres.PendienteDeDerivacion}."));
 
-                ticket.IdEstadoTicket = estadoPendienteDerivacion.IdEstadoTicket;
+                ticket.IdEstadoTicket = (int)EstadoTicketEnum.PendienteDeDerivacion;
                 ticket.FechaActualizacion = DateTime.Now;
 
                 await CrearSlaActivo(ticket);
@@ -413,7 +385,7 @@ namespace TuTicketAPI.Controllers
             catch
             {
                 await transaction.RollbackAsync();
-                EliminarArchivosGuardados(rutasGuardadas);
+                _ticketAttachmentService.EliminarArchivosGuardados(rutasGuardadas);
                 throw;
             }
 
@@ -434,7 +406,7 @@ namespace TuTicketAPI.Controllers
                 return NotFound();
             }
 
-            if (!PuedeVerTicket(ticket))
+            if (!await _ticketAccessService.PuedeVerTicket(ticket))
             {
                 return Forbid();
             }
@@ -446,12 +418,22 @@ namespace TuTicketAPI.Controllers
                 return ValidationProblem(ModelState);
             }
 
-            RegistrarCambio(ticket.IdTicket, "Titulo", ticket.Titulo, request.Titulo, request.IdUsuarioModificacion, request.Comentario);
-            RegistrarCambio(ticket.IdTicket, "Descripcion", ticket.Descripcion, request.Descripcion, request.IdUsuarioModificacion, request.Comentario);
-            RegistrarCambio(ticket.IdTicket, "IdPrioridadTicket", ticket.IdPrioridadTicket.ToString(), request.IdPrioridadTicket.ToString(), request.IdUsuarioModificacion, request.Comentario);
-            RegistrarCambio(ticket.IdTicket, "IdSubcategoriaTicket", ticket.IdSubcategoriaTicket.ToString(), request.IdSubcategoriaTicket.ToString(), request.IdUsuarioModificacion, request.Comentario);
-            RegistrarCambio(ticket.IdTicket, "IdUsuarioAsignado", ticket.IdUsuarioAsignado, request.IdUsuarioAsignado, request.IdUsuarioModificacion, request.Comentario);
-            RegistrarCambio(ticket.IdTicket, "Activo", ticket.Activo.ToString(), request.Activo.ToString(), request.IdUsuarioModificacion, request.Comentario);
+            var nombreUsuarioModificacion = await _ticketHistoryService.ObtenerNombreUsuario(request.IdUsuarioModificacion);
+            var prioridadAnterior = await _ticketHistoryService.ObtenerNombrePrioridad(ticket.IdPrioridadTicket);
+            var prioridadNueva = await _ticketHistoryService.ObtenerNombrePrioridad(request.IdPrioridadTicket);
+            var subcategoriaAnterior = await _ticketHistoryService.ObtenerNombreSubcategoria(ticket.IdSubcategoriaTicket);
+            var subcategoriaNueva = await _ticketHistoryService.ObtenerNombreSubcategoria(request.IdSubcategoriaTicket);
+            var usuarioAsignadoAnterior = await _ticketHistoryService.ObtenerNombreUsuarioOpcional(ticket.IdUsuarioAsignado);
+            var usuarioAsignadoNuevo = await _ticketHistoryService.ObtenerNombreUsuarioOpcional(request.IdUsuarioAsignado);
+            var activoAnterior = ticket.Activo ? "Activo" : "Inactivo";
+            var activoNuevo = request.Activo ? "Activo" : "Inactivo";
+
+            _ticketHistoryService.RegistrarCambio(_context.TicketHistoriales, ticket.IdTicket, "Titulo", ticket.Titulo, request.Titulo, request.IdUsuarioModificacion, _ticketHistoryService.ConstruirComentarioCambio(nombreUsuarioModificacion, "actualizo el titulo del ticket", ticket.Titulo, request.Titulo, request.Comentario));
+            _ticketHistoryService.RegistrarCambio(_context.TicketHistoriales, ticket.IdTicket, "Descripcion", ticket.Descripcion, request.Descripcion, request.IdUsuarioModificacion, _ticketHistoryService.ConstruirComentarioCambio(nombreUsuarioModificacion, "actualizo la descripcion del ticket", "Descripcion anterior", "Descripcion nueva", request.Comentario));
+            _ticketHistoryService.RegistrarCambio(_context.TicketHistoriales, ticket.IdTicket, "Prioridad ticket", prioridadAnterior, prioridadNueva, request.IdUsuarioModificacion, _ticketHistoryService.ConstruirComentarioCambio(nombreUsuarioModificacion, "actualizo la prioridad del ticket", prioridadAnterior, prioridadNueva, request.Comentario));
+            _ticketHistoryService.RegistrarCambio(_context.TicketHistoriales, ticket.IdTicket, "Subcategoria ticket", subcategoriaAnterior, subcategoriaNueva, request.IdUsuarioModificacion, _ticketHistoryService.ConstruirComentarioCambio(nombreUsuarioModificacion, "actualizo la subcategoria del ticket", subcategoriaAnterior, subcategoriaNueva, request.Comentario));
+            _ticketHistoryService.RegistrarCambio(_context.TicketHistoriales, ticket.IdTicket, "Usuario asignado", usuarioAsignadoAnterior, usuarioAsignadoNuevo, request.IdUsuarioModificacion, _ticketHistoryService.ConstruirComentarioCambio(nombreUsuarioModificacion, "actualizo el usuario asignado del ticket", usuarioAsignadoAnterior, usuarioAsignadoNuevo, request.Comentario));
+            _ticketHistoryService.RegistrarCambio(_context.TicketHistoriales, ticket.IdTicket, "Activo", activoAnterior, activoNuevo, request.IdUsuarioModificacion, _ticketHistoryService.ConstruirComentarioCambio(nombreUsuarioModificacion, "actualizo el estado activo del ticket", activoAnterior, activoNuevo, request.Comentario));
 
             ticket.Titulo = request.Titulo;
             ticket.Descripcion = request.Descripcion;
@@ -476,7 +458,7 @@ namespace TuTicketAPI.Controllers
                 return NotFound();
             }
 
-            if (!PuedeVerTicket(ticket))
+            if (!await _ticketAccessService.PuedeVerTicket(ticket))
             {
                 return Forbid();
             }
@@ -496,11 +478,11 @@ namespace TuTicketAPI.Controllers
                 return ValidationProblem(ModelState);
             }
 
-            var nombreUsuarioModificacion = await ObtenerNombreUsuario(idUsuarioModificacion);
+            var nombreUsuarioModificacion = await _ticketHistoryService.ObtenerNombreUsuario(idUsuarioModificacion);
             var nombreAsignadoAnterior = string.IsNullOrWhiteSpace(ticket.IdUsuarioAsignado)
                 ? "Sin usuario asignado"
-                : await ObtenerNombreUsuario(ticket.IdUsuarioAsignado);
-            var nombreAsignadoNuevo = await ObtenerNombreUsuario(request.IdUsuarioAsignado);
+                : await _ticketHistoryService.ObtenerNombreUsuario(ticket.IdUsuarioAsignado);
+            var nombreAsignadoNuevo = await _ticketHistoryService.ObtenerNombreUsuario(request.IdUsuarioAsignado);
             var comentario = $"Ticket asignado por {nombreUsuarioModificacion}. Responsable anterior: {nombreAsignadoAnterior}. Nuevo responsable: {nombreAsignadoNuevo}.";
 
             if (!string.IsNullOrWhiteSpace(request.Comentario))
@@ -508,10 +490,22 @@ namespace TuTicketAPI.Controllers
                 comentario = $"{comentario} Comentario: {request.Comentario}";
             }
 
-            RegistrarCambio(ticket.IdTicket, "IdUsuarioAsignado", ticket.IdUsuarioAsignado, request.IdUsuarioAsignado, idUsuarioModificacion, comentario);
+            _ticketHistoryService.RegistrarCambio(_context.TicketHistoriales, ticket.IdTicket, "Usuario asignado", ticket.IdUsuarioAsignado, request.IdUsuarioAsignado, idUsuarioModificacion, comentario);
+
+
+            var comentarioEstado = $"El ticket cambio de estado de forma automatica por derivacion.";
+
+            if (!string.IsNullOrWhiteSpace(request.Comentario))
+            {
+                comentarioEstado = $"{comentarioEstado} Comentario: {request.Comentario}";
+            }
+
+            _ticketHistoryService.RegistrarCambio(_context.TicketHistoriales, ticket.IdTicket, "Cambio estado", ticket.IdEstadoTicket.ToString(), EstadoTicketEnum.Derivado.ToString(), idUsuarioModificacion, comentarioEstado);
+
+
             ticket.IdUsuarioAsignado = request.IdUsuarioAsignado;
             ticket.FechaActualizacion = DateTime.Now;
-
+            ticket.IdEstadoTicket = (int)EstadoTicketEnum.Derivado;
             await _context.SaveChangesAsync();
 
             return NoContent();
@@ -527,7 +521,7 @@ namespace TuTicketAPI.Controllers
                 return NotFound();
             }
 
-            if (!PuedeVerTicket(ticket))
+            if (!await _ticketAccessService.PuedeVerTicket(ticket))
             {
                 return Forbid();
             }
@@ -571,7 +565,10 @@ namespace TuTicketAPI.Controllers
                 }
             }
 
-            RegistrarCambio(ticket.IdTicket, "IdEstadoTicket", ticket.IdEstadoTicket.ToString(), request.IdEstadoTicket.ToString(), request.IdUsuarioModificacion, request.Comentario);
+            var estadoAnterior = await _ticketHistoryService.ObtenerNombreEstado(ticket.IdEstadoTicket);
+            var nombreUsuarioModificacion = await _ticketHistoryService.ObtenerNombreUsuario(request.IdUsuarioModificacion);
+
+            _ticketHistoryService.RegistrarCambio(_context.TicketHistoriales, ticket.IdTicket, "Estado ticket", estadoAnterior, estadoDestino.Nombre, request.IdUsuarioModificacion, _ticketHistoryService.ConstruirComentarioCambio(nombreUsuarioModificacion, "cambio el estado del ticket", estadoAnterior, estadoDestino.Nombre, request.Comentario));
             ticket.IdEstadoTicket = request.IdEstadoTicket;
             ticket.FechaActualizacion = DateTime.Now;
 
@@ -596,7 +593,7 @@ namespace TuTicketAPI.Controllers
                 return NotFound();
             }
 
-            if (!PuedeVerTicket(ticket))
+            if (!await _ticketAccessService.PuedeVerTicket(ticket))
             {
                 return Forbid();
             }
@@ -608,13 +605,20 @@ namespace TuTicketAPI.Controllers
                 return ValidationProblem(ModelState);
             }
 
-            if (!await _context.PrioridadTickets.AnyAsync(p => p.IdPrioridadTicket == request.IdPrioridadTicket && p.Activo))
+            var prioridadDestino = await _context.PrioridadTickets
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p => p.IdPrioridadTicket == request.IdPrioridadTicket && p.Activo);
+
+            if (prioridadDestino is null)
             {
                 ModelState.AddModelError(nameof(request.IdPrioridadTicket), "La prioridad indicada no existe o esta inactiva.");
                 return ValidationProblem(ModelState);
             }
 
-            RegistrarCambio(ticket.IdTicket, "IdPrioridadTicket", ticket.IdPrioridadTicket.ToString(), request.IdPrioridadTicket.ToString(), request.IdUsuarioModificacion, request.Comentario);
+            var prioridadAnterior = await _ticketHistoryService.ObtenerNombrePrioridad(ticket.IdPrioridadTicket);
+            var nombreUsuarioModificacion = await _ticketHistoryService.ObtenerNombreUsuario(request.IdUsuarioModificacion);
+
+            _ticketHistoryService.RegistrarCambio(_context.TicketHistoriales, ticket.IdTicket, "Prioridad ticket", prioridadAnterior, prioridadDestino.Nombre, request.IdUsuarioModificacion, _ticketHistoryService.ConstruirComentarioCambio(nombreUsuarioModificacion, "cambio la prioridad del ticket", prioridadAnterior, prioridadDestino.Nombre, request.Comentario));
             ticket.IdPrioridadTicket = request.IdPrioridadTicket;
             ticket.FechaActualizacion = DateTime.Now;
 
@@ -633,7 +637,7 @@ namespace TuTicketAPI.Controllers
                 return NotFound();
             }
 
-            if (!PuedeVerTicket(ticket))
+            if (!await _ticketAccessService.PuedeVerTicket(ticket))
             {
                 return Forbid();
             }
@@ -648,7 +652,9 @@ namespace TuTicketAPI.Controllers
                 return NoContent();
             }
 
-            RegistrarCambio(ticket.IdTicket, "Activo", ticket.Activo.ToString(), false.ToString(), idUsuarioModificacion, "Ticket desactivado.");
+            var nombreUsuarioModificacion = await _ticketHistoryService.ObtenerNombreUsuario(idUsuarioModificacion);
+
+            _ticketHistoryService.RegistrarCambio(_context.TicketHistoriales, ticket.IdTicket, "Activo", "Activo", "Inactivo", idUsuarioModificacion, $"{nombreUsuarioModificacion} desactivo el ticket. Valor anterior: Activo. Nuevo valor: Inactivo.");
             ticket.Activo = false;
             ticket.FechaActualizacion = DateTime.Now;
 
@@ -737,132 +743,6 @@ namespace TuTicketAPI.Controllers
             return true;
         }
 
-        private IQueryable<Ticket> AplicarFiltroAcceso(IQueryable<Ticket> query)
-        {
-            var idUsuario = ObtenerIdUsuarioAutenticado();
-
-            if (User.IsInRole(AppRoles.Administrador))
-            {
-                return query;
-            }
-
-            if (idUsuario is null)
-            {
-                return query.Where(t => false);
-            }
-
-            if (EsSolicitanteSinPrivilegios())
-            {
-                query = query.Where(t => t.IdUsuarioSolicitante == idUsuario);
-            }
-            else if (EsResolvedorSinAdministrador())
-            {
-                query = query.Where(t =>
-                    t.IdUsuarioAsignado == idUsuario ||
-                    _context.EquipoSoporteUsuarios.Any(eu =>
-                        eu.Activo &&
-                        eu.IdUsuario == idUsuario &&
-                        _context.CategoriaEquipoSoportes.Any(ce =>
-                            ce.Activo &&
-                            ce.IdEquipoSoporte == eu.IdEquipoSoporte &&
-                            ce.IdCategoriaTicket == t.SubcategoriaTicket.IdCategoriaTicket)));
-            }
-            else
-            {
-                query = query.Where(t => false);
-            }
-
-            return query;
-        }
-
-        private async Task<bool> PuedeVerTicket(int idTicket)
-        {
-            if (User.IsInRole(AppRoles.Administrador))
-            {
-                return await _context.Tickets.AnyAsync(t => t.IdTicket == idTicket);
-            }
-
-            var idUsuario = ObtenerIdUsuarioAutenticado();
-
-            if (idUsuario is null)
-            {
-                return false;
-            }
-
-            if (EsSolicitanteSinPrivilegios())
-            {
-                return await _context.Tickets.AnyAsync(t => t.IdTicket == idTicket && t.IdUsuarioSolicitante == idUsuario);
-            }
-
-            if (EsResolvedorSinAdministrador())
-            {
-                return await _context.Tickets.AnyAsync(t =>
-                    t.IdTicket == idTicket &&
-                    (t.IdUsuarioAsignado == idUsuario ||
-                        _context.EquipoSoporteUsuarios.Any(eu =>
-                            eu.Activo &&
-                            eu.IdUsuario == idUsuario &&
-                            _context.CategoriaEquipoSoportes.Any(ce =>
-                                ce.Activo &&
-                                ce.IdEquipoSoporte == eu.IdEquipoSoporte &&
-                                ce.IdCategoriaTicket == t.SubcategoriaTicket.IdCategoriaTicket))));
-            }
-
-            return false;
-        }
-
-        private bool PuedeVerTicket(Ticket ticket)
-        {
-            var idUsuario = ObtenerIdUsuarioAutenticado();
-
-            if (User.IsInRole(AppRoles.Administrador))
-            {
-                return true;
-            }
-
-            if (idUsuario is null)
-            {
-                return false;
-            }
-
-            if (EsSolicitanteSinPrivilegios())
-            {
-                return ticket.IdUsuarioSolicitante == idUsuario;
-            }
-
-            if (EsResolvedorSinAdministrador())
-            {
-                return ticket.IdUsuarioAsignado == idUsuario ||
-                    _context.EquipoSoporteUsuarios.Any(eu =>
-                        eu.Activo &&
-                        eu.IdUsuario == idUsuario &&
-                        _context.CategoriaEquipoSoportes.Any(ce =>
-                            ce.Activo &&
-                            ce.IdEquipoSoporte == eu.IdEquipoSoporte &&
-                            ce.IdCategoriaTicket == ticket.SubcategoriaTicket.IdCategoriaTicket));
-            }
-
-            return false;
-        }
-
-        private bool EsSolicitanteSinPrivilegios()
-        {
-            return User.IsInRole(AppRoles.Solicitante) &&
-                !User.IsInRole(AppRoles.Administrador) &&
-                !User.IsInRole(AppRoles.ResolvedorTicket);
-        }
-
-        private bool EsResolvedorSinAdministrador()
-        {
-            return User.IsInRole(AppRoles.ResolvedorTicket) &&
-                !User.IsInRole(AppRoles.Administrador);
-        }
-
-        private string? ObtenerIdUsuarioAutenticado()
-        {
-            return User.FindFirstValue(ClaimTypes.NameIdentifier);
-        }
-
         private async Task<string?> ObtenerUsuarioResponsableCategoria(int idSubcategoriaTicket)
         {
             var idCategoriaTicket = await _context.SubcategoriaTickets
@@ -891,14 +771,6 @@ namespace TuTicketAPI.Controllers
                 .FirstOrDefaultAsync(e => e.Nombre == nombre && e.Activo);
         }
 
-        private async Task<string> ObtenerNombreUsuario(string idUsuario)
-        {
-            return await _context.Users
-                .Where(u => u.Id == idUsuario)
-                .Select(u => u.NombreCompleto)
-                .FirstOrDefaultAsync() ?? idUsuario;
-        }
-
         private async Task<string> GenerarCodigo()
         {
             string codigo;
@@ -910,29 +782,6 @@ namespace TuTicketAPI.Controllers
             while (await _context.Tickets.AnyAsync(t => t.Codigo == codigo));
 
             return codigo;
-        }
-
-        private void RegistrarCambio(int idTicket, string campo, string? valorAnterior, string? valorNuevo, string idUsuarioModificacion, string? comentario)
-        {
-            if (valorAnterior == valorNuevo)
-            {
-                return;
-            }
-
-            _context.TicketHistoriales.Add(CrearHistorial(idTicket, campo, valorAnterior, valorNuevo, idUsuarioModificacion, comentario));
-        }
-
-        private static TicketHistorial CrearHistorial(int idTicket, string campo, string? valorAnterior, string? valorNuevo, string idUsuarioModificacion, string? comentario)
-        {
-            return new TicketHistorial
-            {
-                IdTicket = idTicket,
-                CampoModificado = campo,
-                ValorAnterior = valorAnterior,
-                ValorNuevo = valorNuevo,
-                IdUsuarioModificacion = idUsuarioModificacion,
-                Comentario = string.IsNullOrWhiteSpace(comentario) ? null : comentario.Trim()
-            };
         }
 
         private async Task CargarReferencias(Ticket ticket)
@@ -988,78 +837,16 @@ namespace TuTicketAPI.Controllers
             });
         }
 
-        private bool ArchivosValidos(IReadOnlyList<IFormFile>? archivos)
+        private bool ArchivosValidos(IReadOnlyList<IFormFile>? archivos, bool requiereAlMenosUno)
         {
-            if (archivos is null || archivos.Count == 0)
+            var errores = _ticketAttachmentService.ValidarArchivos(archivos, requiereAlMenosUno);
+
+            for (var i = 0; i < errores.Count; i++)
             {
-                return true;
+                ModelState.AddModelError($"{nameof(CrearTicketDto.Archivos)}[{i}]", errores[i]);
             }
 
-            for (var i = 0; i < archivos.Count; i++)
-            {
-                if (archivos[i].Length == 0)
-                {
-                    ModelState.AddModelError($"{nameof(CrearTicketDto.Archivos)}[{i}]", "El archivo esta vacio.");
-                }
-            }
-
-            return ModelState.IsValid;
-        }
-
-        private async Task AgregarAdjuntos(int idTicket, IEnumerable<IFormFile>? archivos, string idUsuarioSubida, ICollection<string> rutasGuardadas)
-        {
-            if (archivos is null)
-            {
-                return;
-            }
-
-            var directorioTicket = Path.Combine(_environment.ContentRootPath, "Uploads", "Tickets", idTicket.ToString());
-            Directory.CreateDirectory(directorioTicket);
-
-            foreach (var archivo in archivos)
-            {
-                var extension = Path.GetExtension(archivo.FileName);
-                var nombreGuardado = $"{Guid.NewGuid():N}{extension}";
-                var rutaFisica = Path.Combine(directorioTicket, nombreGuardado);
-
-                await using (var stream = System.IO.File.Create(rutaFisica))
-                {
-                    await archivo.CopyToAsync(stream);
-                }
-
-                rutasGuardadas.Add(rutaFisica);
-
-                _context.TicketAdjuntos.Add(new TicketAdjunto
-                {
-                    IdTicket = idTicket,
-                    NombreArchivoOriginal = Path.GetFileName(archivo.FileName),
-                    NombreArchivoGuardado = nombreGuardado,
-                    RutaArchivo = rutaFisica,
-                    TipoContenido = string.IsNullOrWhiteSpace(archivo.ContentType) ? "application/octet-stream" : archivo.ContentType,
-                    Extension = string.IsNullOrWhiteSpace(extension) ? null : extension,
-                    PesoBytes = archivo.Length,
-                    IdUsuarioSubida = idUsuarioSubida,
-                    Activo = true
-                });
-            }
-        }
-
-        private static void EliminarArchivosGuardados(IEnumerable<string> rutasGuardadas)
-        {
-            foreach (var ruta in rutasGuardadas)
-            {
-                try
-                {
-                    if (System.IO.File.Exists(ruta))
-                    {
-                        System.IO.File.Delete(ruta);
-                    }
-                }
-                catch
-                {
-                    // La transaccion de base de datos ya se revirtio; la limpieza de archivos no debe ocultar el error original.
-                }
-            }
+            return errores.Count == 0;
         }
 
         private static void Normalizar(CrearTicketDto request)

@@ -1,27 +1,28 @@
-using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using AutoMapper;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using TuTicketAPI.Authorization;
 using TuTicketAPI.Dtos.Comun;
 using TuTicketAPI.Dtos.TicketBitacora;
 using TuTicketAPI.Models;
+using TuTicketAPI.Services.Tickets;
 
 namespace TuTicketAPI.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
-    public class TicketBitacoraController : ControllerBase
+    public class TicketBitacoraController : ApiControllerBase
     {
         private readonly ApplicationDbContext _context;
         private readonly IMapper _mapper;
+        private readonly ITicketAccessService _ticketAccessService;
 
-        public TicketBitacoraController(ApplicationDbContext context, IMapper mapper)
+        public TicketBitacoraController(ApplicationDbContext context, IMapper mapper, ITicketAccessService ticketAccessService)
         {
             _context = context;
             _mapper = mapper;
+            _ticketAccessService = ticketAccessService;
         }
 
         [HttpGet("/api/Ticket/{idTicket:int}/bitacora")]
@@ -30,21 +31,15 @@ namespace TuTicketAPI.Controllers
             [FromQuery] bool incluirInactivos = false,
             [FromQuery] bool? esInterno = null,
             [FromQuery] int pagina = 1,
-            [FromQuery] int tamanoPagina = 10)
+            [FromQuery] int tamanoPagina = 5)
         {
-            if (pagina < 1)
+            var errorPaginacion = ValidarPaginacion(pagina, tamanoPagina);
+            if (errorPaginacion is not null)
             {
-                ModelState.AddModelError(nameof(pagina), "La pagina debe ser mayor o igual a 1.");
-                return ValidationProblem(ModelState);
+                return errorPaginacion;
             }
 
-            if (tamanoPagina < 1 || tamanoPagina > 100)
-            {
-                ModelState.AddModelError(nameof(tamanoPagina), "El tamano de pagina debe estar entre 1 y 100.");
-                return ValidationProblem(ModelState);
-            }
-
-            if (!await PuedeVerTicket(idTicket))
+            if (!await _ticketAccessService.PuedeVerTicket(idTicket))
             {
                 return Forbid();
             }
@@ -72,14 +67,11 @@ namespace TuTicketAPI.Controllers
                 .Take(tamanoPagina)
                 .ToListAsync();
 
-            var response = new ResultadoPaginadoDto<TicketBitacoraDto>
-            {
-                Pagina = pagina,
-                TamanoPagina = tamanoPagina,
-                TotalRegistros = totalRegistros,
-                TotalPaginas = (int)Math.Ceiling(totalRegistros / (double)tamanoPagina),
-                Datos = _mapper.Map<IEnumerable<TicketBitacoraDto>>(bitacoras)
-            };
+            var response = CrearResultadoPaginado(
+                pagina,
+                tamanoPagina,
+                totalRegistros,
+                _mapper.Map<IEnumerable<TicketBitacoraDto>>(bitacoras));
 
             return Ok(response);
         }
@@ -97,7 +89,7 @@ namespace TuTicketAPI.Controllers
                 return NotFound();
             }
 
-            if (!await PuedeVerTicket(bitacora.IdTicket))
+            if (!await _ticketAccessService.PuedeVerTicket(bitacora.IdTicket))
             {
                 return Forbid();
             }
@@ -110,7 +102,7 @@ namespace TuTicketAPI.Controllers
         {
             Normalizar(request);
 
-            if (!await PuedeVerTicket(idTicket))
+            if (!await _ticketAccessService.PuedeVerTicket(idTicket))
             {
                 return Forbid();
             }
@@ -150,7 +142,7 @@ namespace TuTicketAPI.Controllers
                 return NotFound();
             }
 
-            if (!await PuedeVerTicket(bitacora.IdTicket))
+            if (!await _ticketAccessService.PuedeVerTicket(bitacora.IdTicket))
             {
                 return Forbid();
             }
@@ -173,7 +165,7 @@ namespace TuTicketAPI.Controllers
                 return NotFound();
             }
 
-            if (!await PuedeVerTicket(bitacora.IdTicket))
+            if (!await _ticketAccessService.PuedeVerTicket(bitacora.IdTicket))
             {
                 return Forbid();
             }
@@ -200,53 +192,5 @@ namespace TuTicketAPI.Controllers
             request.Comentario = request.Comentario.Trim();
         }
 
-        private async Task<bool> PuedeVerTicket(int idTicket)
-        {
-            if (User.IsInRole(AppRoles.Administrador))
-            {
-                return await _context.Tickets.AnyAsync(t => t.IdTicket == idTicket);
-            }
-
-            var idUsuario = User.FindFirstValue(ClaimTypes.NameIdentifier);
-
-            if (idUsuario is null)
-            {
-                return false;
-            }
-
-            if (EsSolicitanteSinPrivilegios())
-            {
-                return await _context.Tickets.AnyAsync(t => t.IdTicket == idTicket && t.IdUsuarioSolicitante == idUsuario);
-            }
-
-            if (EsResolvedorSinAdministrador())
-            {
-                return await _context.Tickets.AnyAsync(t =>
-                    t.IdTicket == idTicket &&
-                    (t.IdUsuarioAsignado == idUsuario ||
-                        _context.EquipoSoporteUsuarios.Any(eu =>
-                            eu.Activo &&
-                            eu.IdUsuario == idUsuario &&
-                            _context.CategoriaEquipoSoportes.Any(ce =>
-                                ce.Activo &&
-                                ce.IdEquipoSoporte == eu.IdEquipoSoporte &&
-                                ce.IdCategoriaTicket == t.SubcategoriaTicket.IdCategoriaTicket))));
-            }
-
-            return false;
-        }
-
-        private bool EsSolicitanteSinPrivilegios()
-        {
-            return User.IsInRole(AppRoles.Solicitante) &&
-                !User.IsInRole(AppRoles.Administrador) &&
-                !User.IsInRole(AppRoles.ResolvedorTicket);
-        }
-
-        private bool EsResolvedorSinAdministrador()
-        {
-            return User.IsInRole(AppRoles.ResolvedorTicket) &&
-                !User.IsInRole(AppRoles.Administrador);
-        }
     }
 }
