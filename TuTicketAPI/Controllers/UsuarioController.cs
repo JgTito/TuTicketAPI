@@ -145,6 +145,71 @@ namespace TuTicketAPI.Controllers
             return Ok(usuarios);
         }
 
+        [HttpGet("responsables-ticket/select")]
+        [Authorize(Roles = $"{AppRoles.Administrador},{AppRoles.ResolvedorTicket}")]
+        public async Task<ActionResult<IEnumerable<UsuarioSelectDto>>> GetResponsablesTicketSelect(
+            [FromQuery] int? idTicket = null,
+            [FromQuery] int? idSubcategoriaTicket = null,
+            [FromQuery] int? idCategoriaTicket = null,
+            [FromQuery] string? buscar = null)
+        {
+            var idCategoria = await ResolverCategoriaTicket(idTicket, idSubcategoriaTicket, idCategoriaTicket);
+
+            if (!idCategoria.HasValue)
+            {
+                ModelState.AddModelError(nameof(idCategoriaTicket), "Debe indicar un ticket, subcategoria o categoria valida.");
+                return ValidationProblem(ModelState);
+            }
+
+            var rolesPermitidos = new[]
+            {
+                AppRoles.Administrador.ToUpperInvariant(),
+                AppRoles.ResolvedorTicket.ToUpperInvariant()
+            };
+
+            var query = _context.Users
+                .AsNoTracking()
+                .Where(u =>
+                    u.Activo &&
+                    _context.UserRoles.Any(ur =>
+                        ur.UserId == u.Id &&
+                        _context.Roles.Any(r =>
+                            r.Id == ur.RoleId &&
+                            r.NormalizedName != null &&
+                            rolesPermitidos.Contains(r.NormalizedName))) &&
+                    _context.EquipoSoporteUsuarios.Any(eu =>
+                        eu.Activo &&
+                        eu.IdUsuario == u.Id &&
+                        _context.CategoriaEquipoSoportes.Any(ce =>
+                            ce.Activo &&
+                            ce.IdEquipoSoporte == eu.IdEquipoSoporte &&
+                            ce.IdCategoriaTicket == idCategoria.Value)));
+
+            if (!string.IsNullOrWhiteSpace(buscar))
+            {
+                var filtro = buscar.Trim();
+
+                query = query.Where(u =>
+                    u.NombreCompleto.Contains(filtro) ||
+                    (u.Email != null && u.Email.Contains(filtro)) ||
+                    (u.UserName != null && u.UserName.Contains(filtro)));
+            }
+
+            var usuarios = await query
+                .OrderBy(u => u.NombreCompleto)
+                .ThenBy(u => u.Email)
+                .Select(u => new UsuarioSelectDto
+                {
+                    Id = u.Id,
+                    NombreCompleto = u.NombreCompleto,
+                    Email = u.Email,
+                    UserName = u.UserName
+                })
+                .ToListAsync();
+
+            return Ok(usuarios);
+        }
+
         private async Task<AuthUsuarioDto> CrearRespuestaAuth(ApplicationUser usuario)
         {
             var roles = await _userManager.GetRolesAsync(usuario);
@@ -201,6 +266,54 @@ namespace TuTicketAPI.Controllers
             return int.TryParse(_configuration["Jwt:ExpirationMinutes"], out var minutos) && minutos > 0
                 ? minutos
                 : 120;
+        }
+
+        private async Task<int?> ResolverCategoriaTicket(int? idTicket, int? idSubcategoriaTicket, int? idCategoriaTicket)
+        {
+            if (idTicket.HasValue)
+            {
+                var categoriaDesdeTicket = await _context.Tickets
+                    .AsNoTracking()
+                    .Where(t => t.IdTicket == idTicket.Value)
+                    .Select(t => (int?)t.SubcategoriaTicket.IdCategoriaTicket)
+                    .FirstOrDefaultAsync();
+
+                if (categoriaDesdeTicket.HasValue)
+                {
+                    return categoriaDesdeTicket;
+                }
+            }
+
+            if (idSubcategoriaTicket.HasValue)
+            {
+                var categoriaDesdeSubcategoria = await _context.SubcategoriaTickets
+                    .AsNoTracking()
+                    .Where(s =>
+                        s.IdSubcategoriaTicket == idSubcategoriaTicket.Value &&
+                        s.Activo &&
+                        s.CategoriaTicket.Activo)
+                    .Select(s => (int?)s.IdCategoriaTicket)
+                    .FirstOrDefaultAsync();
+
+                if (categoriaDesdeSubcategoria.HasValue)
+                {
+                    return categoriaDesdeSubcategoria;
+                }
+            }
+
+            if (idCategoriaTicket.HasValue)
+            {
+                var categoriaExiste = await _context.CategoriaTickets
+                    .AsNoTracking()
+                    .AnyAsync(c => c.IdCategoriaTicket == idCategoriaTicket.Value && c.Activo);
+
+                if (categoriaExiste)
+                {
+                    return idCategoriaTicket.Value;
+                }
+            }
+
+            return null;
         }
 
         private void AgregarErroresIdentity(IdentityResult resultado)
