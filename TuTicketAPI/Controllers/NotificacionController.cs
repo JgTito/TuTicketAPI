@@ -2,6 +2,8 @@ using AutoMapper;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using TuTicketAPI.Authorization;
+using TuTicketAPI.Dtos.Comun;
 using TuTicketAPI.Dtos.Notificacion;
 using TuTicketAPI.Models;
 using TuTicketAPI.Services.Common;
@@ -31,38 +33,76 @@ namespace TuTicketAPI.Controllers
         }
 
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<NotificacionDto>>> GetNotificaciones(
+        public async Task<ActionResult<ResultadoPaginadoDto<NotificacionDto>>> GetNotificaciones(
             [FromQuery] string? idUsuarioDestino = null,
             [FromQuery] bool soloNoLeidas = false,
-            [FromQuery] int? idTicket = null)
+            [FromQuery] int? idTicket = null,
+            [FromQuery] DateTime? fechaDesde = null,
+            [FromQuery] DateTime? fechaHasta = null,
+            [FromQuery] int pagina = 1,
+            [FromQuery] int tamanoPagina = 10)
         {
-            var query = _context.Notificaciones
-                .Include(n => n.UsuarioDestino)
-                .Include(n => n.Ticket)
-                .AsNoTracking();
-            query = AplicarFiltroSolicitante(query);
-
-            if (!string.IsNullOrWhiteSpace(idUsuarioDestino))
+            var errorPaginacion = ValidarPaginacion(pagina, tamanoPagina);
+            if (errorPaginacion is not null)
             {
-                var usuario = idUsuarioDestino.Trim();
-                query = query.Where(n => n.IdUsuarioDestino == usuario);
+                return errorPaginacion;
             }
 
-            if (soloNoLeidas)
+            ValidarRangoFechas(fechaDesde, fechaHasta);
+            if (!ModelState.IsValid)
             {
-                query = query.Where(n => !n.Leida);
+                return ValidationProblem(ModelState);
             }
 
-            if (idTicket.HasValue)
-            {
-                query = query.Where(n => n.IdTicket == idTicket.Value);
-            }
+            var query = CrearQueryNotificaciones();
+            query = AplicarFiltroAcceso(query, idUsuarioDestino);
+            query = AplicarFiltros(query, soloNoLeidas, idTicket, fechaDesde, fechaHasta);
+
+            var totalRegistros = await query.CountAsync();
 
             var notificaciones = await query
                 .OrderByDescending(n => n.FechaCreacion)
+                .Skip((pagina - 1) * tamanoPagina)
+                .Take(tamanoPagina)
                 .ToListAsync();
 
-            return Ok(_mapper.Map<IEnumerable<NotificacionDto>>(notificaciones));
+            var response = CrearResultadoPaginado(
+                pagina,
+                tamanoPagina,
+                totalRegistros,
+                _mapper.Map<IEnumerable<NotificacionDto>>(notificaciones));
+
+            return Ok(response);
+        }
+
+        [HttpGet("mis-notificaciones")]
+        public async Task<ActionResult<ResultadoPaginadoDto<NotificacionDto>>> GetMisNotificaciones(
+            [FromQuery] bool soloNoLeidas = false,
+            [FromQuery] int? idTicket = null,
+            [FromQuery] DateTime? fechaDesde = null,
+            [FromQuery] DateTime? fechaHasta = null,
+            [FromQuery] int pagina = 1,
+            [FromQuery] int tamanoPagina = 10)
+        {
+            var idUsuario = _currentUserService.IdUsuario;
+
+            if (idUsuario is null)
+            {
+                return Unauthorized();
+            }
+
+            return await GetNotificaciones(idUsuario, soloNoLeidas, idTicket, fechaDesde, fechaHasta, pagina, tamanoPagina);
+        }
+
+        [HttpGet("no-leidas/count")]
+        public async Task<ActionResult<NotificacionConteoDto>> GetTotalNoLeidas([FromQuery] string? idUsuarioDestino = null)
+        {
+            var query = CrearQueryNotificaciones();
+            query = AplicarFiltroAcceso(query, idUsuarioDestino);
+
+            var total = await query.CountAsync(n => !n.Leida);
+
+            return Ok(new NotificacionConteoDto { Total = total });
         }
 
         [HttpGet("{id:int}")]
@@ -88,6 +128,7 @@ namespace TuTicketAPI.Controllers
         }
 
         [HttpPost]
+        [Authorize(Roles = $"{AppRoles.Administrador},{AppRoles.ResolvedorTicket}")]
         public async Task<ActionResult<NotificacionDto>> CreateNotificacion([FromBody] CrearNotificacionDto request)
         {
             Normalizar(request);
@@ -135,25 +176,61 @@ namespace TuTicketAPI.Controllers
             return NoContent();
         }
 
-        [HttpPut("marcar-todas-leidas")]
-        public async Task<IActionResult> MarcarTodasLeidas([FromQuery] string idUsuarioDestino)
+        [HttpPut("{id:int}/marcar-no-leida")]
+        public async Task<IActionResult> MarcarNoLeida([FromRoute] int id)
         {
-            if (string.IsNullOrWhiteSpace(idUsuarioDestino))
+            var notificacion = await _context.Notificaciones.FindAsync(id);
+
+            if (notificacion is null)
             {
-                ModelState.AddModelError(nameof(idUsuarioDestino), "El usuario destino es requerido.");
-                return ValidationProblem(ModelState);
+                return NotFound();
             }
 
-            var usuario = idUsuarioDestino.Trim();
-
-            if (EsSolicitanteSinPrivilegios())
+            if (!PuedeVerNotificacion(notificacion))
             {
-                var idUsuarioActual = _currentUserService.IdUsuario;
+                return Forbid();
+            }
 
-                if (idUsuarioActual is null || usuario != idUsuarioActual)
-                {
-                    return Forbid();
-                }
+            if (notificacion.Leida)
+            {
+                notificacion.Leida = false;
+                notificacion.FechaLectura = null;
+                await _context.SaveChangesAsync();
+            }
+
+            return NoContent();
+        }
+
+        [HttpPut("marcar-leidas")]
+        public async Task<IActionResult> MarcarLeidas([FromBody] MarcarNotificacionesDto request)
+        {
+            var query = _context.Notificaciones
+                .Where(n => request.IdNotificaciones.Contains(n.IdNotificacion));
+
+            query = AplicarFiltroAcceso(query, null);
+
+            var notificaciones = await query.ToListAsync();
+            var fechaLectura = DateTime.Now;
+
+            foreach (var notificacion in notificaciones)
+            {
+                notificacion.Leida = true;
+                notificacion.FechaLectura ??= fechaLectura;
+            }
+
+            await _context.SaveChangesAsync();
+
+            return NoContent();
+        }
+
+        [HttpPut("marcar-todas-leidas")]
+        public async Task<IActionResult> MarcarTodasLeidas([FromQuery] string? idUsuarioDestino = null)
+        {
+            var usuario = ResolverUsuarioDestino(idUsuarioDestino);
+
+            if (usuario is null)
+            {
+                return Unauthorized();
             }
 
             if (!await _referenceValidationService.UsuarioActivoExiste(usuario))
@@ -177,6 +254,27 @@ namespace TuTicketAPI.Controllers
             return NoContent();
         }
 
+        [HttpDelete("{id:int}")]
+        public async Task<IActionResult> DeleteNotificacion([FromRoute] int id)
+        {
+            var notificacion = await _context.Notificaciones.FindAsync(id);
+
+            if (notificacion is null)
+            {
+                return NotFound();
+            }
+
+            if (!PuedeVerNotificacion(notificacion))
+            {
+                return Forbid();
+            }
+
+            _context.Notificaciones.Remove(notificacion);
+            await _context.SaveChangesAsync();
+
+            return NoContent();
+        }
+
         private async Task<bool> ReferenciasValidas(CrearNotificacionDto request)
         {
             var esValido = true;
@@ -188,9 +286,9 @@ namespace TuTicketAPI.Controllers
             }
 
             if (request.IdTicket.HasValue &&
-                !await _referenceValidationService.TicketActivoExiste(request.IdTicket.Value))
+                !await _referenceValidationService.TicketExiste(request.IdTicket.Value))
             {
-                ModelState.AddModelError(nameof(request.IdTicket), "El ticket indicado no existe o esta inactivo.");
+                ModelState.AddModelError(nameof(request.IdTicket), "El ticket indicado no existe.");
                 esValido = false;
             }
 
@@ -204,16 +302,30 @@ namespace TuTicketAPI.Controllers
             request.Mensaje = request.Mensaje.Trim();
         }
 
-        private IQueryable<Notificacion> AplicarFiltroSolicitante(IQueryable<Notificacion> query)
+        private IQueryable<Notificacion> CrearQueryNotificaciones()
+        {
+            return _context.Notificaciones
+                .Include(n => n.UsuarioDestino)
+                .Include(n => n.Ticket)
+                .AsNoTracking();
+        }
+
+        private IQueryable<Notificacion> AplicarFiltroAcceso(IQueryable<Notificacion> query, string? idUsuarioDestino)
         {
             var idUsuario = _currentUserService.IdUsuario;
 
-            if (_currentUserService.EsAdministrador || _currentUserService.EsResolvedorSinAdministrador)
+            if (_currentUserService.EsAdministrador)
             {
+                if (!string.IsNullOrWhiteSpace(idUsuarioDestino))
+                {
+                    var usuario = idUsuarioDestino.Trim();
+                    query = query.Where(n => n.IdUsuarioDestino == usuario);
+                }
+
                 return query;
             }
 
-            if (EsSolicitanteSinPrivilegios() && idUsuario is not null)
+            if (idUsuario is not null)
             {
                 query = query.Where(n => n.IdUsuarioDestino == idUsuario);
             }
@@ -225,17 +337,60 @@ namespace TuTicketAPI.Controllers
             return query;
         }
 
+        private static IQueryable<Notificacion> AplicarFiltros(
+            IQueryable<Notificacion> query,
+            bool soloNoLeidas,
+            int? idTicket,
+            DateTime? fechaDesde,
+            DateTime? fechaHasta)
+        {
+            if (soloNoLeidas)
+            {
+                query = query.Where(n => !n.Leida);
+            }
+
+            if (idTicket.HasValue)
+            {
+                query = query.Where(n => n.IdTicket == idTicket.Value);
+            }
+
+            if (fechaDesde.HasValue)
+            {
+                query = query.Where(n => n.FechaCreacion >= fechaDesde.Value);
+            }
+
+            if (fechaHasta.HasValue)
+            {
+                query = query.Where(n => n.FechaCreacion <= fechaHasta.Value);
+            }
+
+            return query;
+        }
+
         private bool PuedeVerNotificacion(Notificacion notificacion)
         {
             var idUsuario = _currentUserService.IdUsuario;
 
-            return !EsSolicitanteSinPrivilegios() ||
+            return _currentUserService.EsAdministrador ||
                 (idUsuario is not null && notificacion.IdUsuarioDestino == idUsuario);
         }
 
-        private bool EsSolicitanteSinPrivilegios()
+        private string? ResolverUsuarioDestino(string? idUsuarioDestino)
         {
-            return _currentUserService.EsSolicitanteSinPrivilegios;
+            if (_currentUserService.EsAdministrador && !string.IsNullOrWhiteSpace(idUsuarioDestino))
+            {
+                return idUsuarioDestino.Trim();
+            }
+
+            return _currentUserService.IdUsuario;
+        }
+
+        private void ValidarRangoFechas(DateTime? fechaDesde, DateTime? fechaHasta)
+        {
+            if (fechaDesde.HasValue && fechaHasta.HasValue && fechaDesde.Value > fechaHasta.Value)
+            {
+                ModelState.AddModelError(nameof(fechaDesde), "La fecha desde no puede ser mayor que la fecha hasta.");
+            }
         }
     }
 }

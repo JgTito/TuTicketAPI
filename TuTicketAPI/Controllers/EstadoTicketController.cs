@@ -11,7 +11,6 @@ namespace TuTicketAPI.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    [Authorize(Roles = AppRoles.Administrador)]
     public class EstadoTicketController : ApiControllerBase
     {
         private readonly ApplicationDbContext _context;
@@ -23,6 +22,7 @@ namespace TuTicketAPI.Controllers
             _mapper = mapper;
         }
 
+        [Authorize(Roles = AppRoles.Administrador)]
         [HttpGet]
         public async Task<ActionResult<ResultadoPaginadoDto<EstadoTicketDto>>> GetEstadosTicket(
             [FromQuery] bool incluirInactivos = false,
@@ -60,6 +60,41 @@ namespace TuTicketAPI.Controllers
             return Ok(response);
         }
 
+        [Authorize(Roles = $"{AppRoles.Administrador},{AppRoles.ResolvedorTicket},{AppRoles.Solicitante}")]
+        [HttpGet("select")]
+        public async Task<ActionResult<IEnumerable<EstadoTicketSelectDto>>> GetEstadosTicketSelect(
+            [FromQuery] string? buscar = null,
+            [FromQuery] bool incluirInactivos = false)
+        {
+            var query = _context.EstadoTickets.AsNoTracking();
+
+            if (!incluirInactivos)
+            {
+                query = query.Where(e => e.Activo);
+            }
+
+            if (!string.IsNullOrWhiteSpace(buscar))
+            {
+                var filtro = buscar.Trim();
+                query = query.Where(e => e.Nombre.Contains(filtro));
+            }
+
+            var estados = await query
+                .OrderBy(e => e.Orden)
+                .ThenBy(e => e.Nombre)
+                .Select(e => new EstadoTicketSelectDto
+                {
+                    IdEstadoTicket = e.IdEstadoTicket,
+                    Nombre = e.Nombre,
+                    EsEstadoFinal = e.EsEstadoFinal,
+                    Orden = e.Orden
+                })
+                .ToListAsync();
+
+            return Ok(estados);
+        }
+
+        [Authorize(Roles = AppRoles.Administrador)]
         [HttpGet("{id:int}")]
         public async Task<ActionResult<EstadoTicketDto>> GetEstadoTicket([FromRoute] int id)
         {
@@ -75,6 +110,7 @@ namespace TuTicketAPI.Controllers
             return Ok(_mapper.Map<EstadoTicketDto>(estado));
         }
 
+        [Authorize(Roles = AppRoles.Administrador)]
         [HttpPost]
         public async Task<ActionResult<EstadoTicketDto>> CreateEstadoTicket([FromBody] CrearEstadoTicketDto request)
         {
@@ -99,6 +135,7 @@ namespace TuTicketAPI.Controllers
             return CreatedAtAction(nameof(GetEstadoTicket), new { id = estado.IdEstadoTicket }, response);
         }
 
+        [Authorize(Roles = AppRoles.Administrador)]
         [HttpPut("{id:int}")]
         public async Task<IActionResult> UpdateEstadoTicket([FromRoute] int id, [FromBody] ActualizarEstadoTicketDto request)
         {
@@ -127,6 +164,7 @@ namespace TuTicketAPI.Controllers
             return NoContent();
         }
 
+        [Authorize(Roles = AppRoles.Administrador)]
         [HttpDelete("{id:int}")]
         public async Task<IActionResult> DeleteEstadoTicket([FromRoute] int id)
         {

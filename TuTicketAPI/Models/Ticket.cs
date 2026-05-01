@@ -17,8 +17,6 @@ namespace TuTicketAPI.Models
         public DateTime? FechaResolucion { get; set; }
         public DateTime? FechaCierre { get; set; }
         public int CantidadReaperturas { get; set; }
-        public bool Activo { get; set; } = true;
-
         public EstadoTicket EstadoTicket { get; set; } = null!;
         public PrioridadTicket PrioridadTicket { get; set; } = null!;
         public SubcategoriaTicket SubcategoriaTicket { get; set; } = null!;

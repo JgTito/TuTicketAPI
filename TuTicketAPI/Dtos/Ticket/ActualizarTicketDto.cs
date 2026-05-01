@@ -19,8 +19,6 @@ namespace TuTicketAPI.Dtos.Ticket
 
         public string? IdUsuarioAsignado { get; set; }
 
-        public bool Activo { get; set; } = true;
-
         [Required]
         public string IdUsuarioModificacion { get; set; } = string.Empty;
 

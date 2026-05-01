@@ -26,6 +26,7 @@ namespace TuTicketAPI.Controllers
         private readonly ITicketAccessService _ticketAccessService;
         private readonly ITicketAttachmentService _ticketAttachmentService;
         private readonly ITicketHistoryService _ticketHistoryService;
+        private readonly ITicketNotificationService _ticketNotificationService;
         private readonly IReferenceValidationService _referenceValidationService;
 
         public TicketController(
@@ -35,6 +36,7 @@ namespace TuTicketAPI.Controllers
             ITicketAccessService ticketAccessService,
             ITicketAttachmentService ticketAttachmentService,
             ITicketHistoryService ticketHistoryService,
+            ITicketNotificationService ticketNotificationService,
             IReferenceValidationService referenceValidationService)
         {
             _context = context;
@@ -43,12 +45,12 @@ namespace TuTicketAPI.Controllers
             _ticketAccessService = ticketAccessService;
             _ticketAttachmentService = ticketAttachmentService;
             _ticketHistoryService = ticketHistoryService;
+            _ticketNotificationService = ticketNotificationService;
             _referenceValidationService = referenceValidationService;
         }
 
         [HttpGet]
         public async Task<ActionResult<ResultadoPaginadoDto<TicketDto>>> GetTickets(
-            [FromQuery] bool incluirInactivos = false,
             [FromQuery] int? idEstadoTicket = null,
             [FromQuery] int? idPrioridadTicket = null,
             [FromQuery] int? idSubcategoriaTicket = null,
@@ -87,11 +89,6 @@ namespace TuTicketAPI.Controllers
 
             var query = TicketsConReferencias().AsNoTracking();
             query = _ticketAccessService.AplicarFiltroAcceso(query);
-
-            if (!incluirInactivos)
-            {
-                query = query.Where(t => t.Activo);
-            }
 
             if (idEstadoTicket.HasValue)
             {
@@ -390,6 +387,7 @@ namespace TuTicketAPI.Controllers
                 ticket.FechaActualizacion = DateTime.Now;
 
                 await CrearSlaActivo(ticket);
+                await _ticketNotificationService.NotificarCreacionTicket(ticket, idUsuarioSolicitante);
                 await _context.SaveChangesAsync();
 
                 await transaction.CommitAsync();
@@ -437,23 +435,22 @@ namespace TuTicketAPI.Controllers
             var subcategoriaNueva = await _ticketHistoryService.ObtenerNombreSubcategoria(request.IdSubcategoriaTicket);
             var usuarioAsignadoAnterior = await _ticketHistoryService.ObtenerNombreUsuarioOpcional(ticket.IdUsuarioAsignado);
             var usuarioAsignadoNuevo = await _ticketHistoryService.ObtenerNombreUsuarioOpcional(request.IdUsuarioAsignado);
-            var activoAnterior = ticket.Activo ? "Activo" : "Inactivo";
-            var activoNuevo = request.Activo ? "Activo" : "Inactivo";
+
 
             _ticketHistoryService.RegistrarCambio(_context.TicketHistoriales, ticket.IdTicket, "Titulo", ticket.Titulo, request.Titulo, request.IdUsuarioModificacion, _ticketHistoryService.ConstruirComentarioCambio(nombreUsuarioModificacion, "actualizo el titulo del ticket", ticket.Titulo, request.Titulo, request.Comentario));
             _ticketHistoryService.RegistrarCambio(_context.TicketHistoriales, ticket.IdTicket, "Descripcion", ticket.Descripcion, request.Descripcion, request.IdUsuarioModificacion, _ticketHistoryService.ConstruirComentarioCambio(nombreUsuarioModificacion, "actualizo la descripcion del ticket", "Descripcion anterior", "Descripcion nueva", request.Comentario));
             _ticketHistoryService.RegistrarCambio(_context.TicketHistoriales, ticket.IdTicket, "Prioridad ticket", prioridadAnterior, prioridadNueva, request.IdUsuarioModificacion, _ticketHistoryService.ConstruirComentarioCambio(nombreUsuarioModificacion, "actualizo la prioridad del ticket", prioridadAnterior, prioridadNueva, request.Comentario));
             _ticketHistoryService.RegistrarCambio(_context.TicketHistoriales, ticket.IdTicket, "Subcategoria ticket", subcategoriaAnterior, subcategoriaNueva, request.IdUsuarioModificacion, _ticketHistoryService.ConstruirComentarioCambio(nombreUsuarioModificacion, "actualizo la subcategoria del ticket", subcategoriaAnterior, subcategoriaNueva, request.Comentario));
             _ticketHistoryService.RegistrarCambio(_context.TicketHistoriales, ticket.IdTicket, "Usuario asignado", usuarioAsignadoAnterior, usuarioAsignadoNuevo, request.IdUsuarioModificacion, _ticketHistoryService.ConstruirComentarioCambio(nombreUsuarioModificacion, "actualizo el usuario asignado del ticket", usuarioAsignadoAnterior, usuarioAsignadoNuevo, request.Comentario));
-            _ticketHistoryService.RegistrarCambio(_context.TicketHistoriales, ticket.IdTicket, "Activo", activoAnterior, activoNuevo, request.IdUsuarioModificacion, _ticketHistoryService.ConstruirComentarioCambio(nombreUsuarioModificacion, "actualizo el estado activo del ticket", activoAnterior, activoNuevo, request.Comentario));
 
             ticket.Titulo = request.Titulo;
             ticket.Descripcion = request.Descripcion;
             ticket.IdPrioridadTicket = request.IdPrioridadTicket;
             ticket.IdSubcategoriaTicket = request.IdSubcategoriaTicket;
             ticket.IdUsuarioAsignado = request.IdUsuarioAsignado;
-            ticket.Activo = request.Activo;
             ticket.FechaActualizacion = DateTime.Now;
+
+            await _ticketNotificationService.NotificarActualizacionTicket(ticket, request.IdUsuarioModificacion, request.Comentario);
 
             await _context.SaveChangesAsync();
 
@@ -512,8 +509,9 @@ namespace TuTicketAPI.Controllers
                 comentarioEstado = $"{comentarioEstado} Comentario: {request.Comentario}";
             }
 
-            _ticketHistoryService.RegistrarCambio(_context.TicketHistoriales, ticket.IdTicket, "Cambio estado", ticket.IdEstadoTicket.ToString(), EstadoTicketEnum.Derivado.ToString(), idUsuarioModificacion, comentarioEstado);
+            _ticketHistoryService.RegistrarCambio(_context.TicketHistoriales, ticket.IdTicket, "Cambio estado", ticket.IdEstadoTicket.ToString(), ((int)EstadoTicketEnum.Derivado).ToString(), idUsuarioModificacion, comentarioEstado);
 
+            await _ticketNotificationService.NotificarAsignacionTicket(ticket, idUsuarioModificacion, request.IdUsuarioAsignado, request.Comentario);
 
             ticket.IdUsuarioAsignado = request.IdUsuarioAsignado;
             ticket.FechaActualizacion = DateTime.Now;
@@ -526,6 +524,15 @@ namespace TuTicketAPI.Controllers
         [HttpPut("{id:int}/cambiar-estado")]
         public async Task<IActionResult> CambiarEstado([FromRoute] int id, [FromBody] CambiarEstadoTicketDto request)
         {
+            var idUsuarioModificacion = _currentUserService.IdUsuario;
+
+            if (idUsuarioModificacion is null)
+            {
+                return Unauthorized();
+            }
+
+            request.IdUsuarioModificacion = idUsuarioModificacion;
+
             var ticket = await _context.Tickets.FindAsync(id);
 
             if (ticket is null)
@@ -581,6 +588,7 @@ namespace TuTicketAPI.Controllers
             var nombreUsuarioModificacion = await _ticketHistoryService.ObtenerNombreUsuario(request.IdUsuarioModificacion);
 
             _ticketHistoryService.RegistrarCambio(_context.TicketHistoriales, ticket.IdTicket, "Estado ticket", estadoAnterior, estadoDestino.Nombre, request.IdUsuarioModificacion, _ticketHistoryService.ConstruirComentarioCambio(nombreUsuarioModificacion, "cambio el estado del ticket", estadoAnterior, estadoDestino.Nombre, request.Comentario));
+            await _ticketNotificationService.NotificarCambioEstadoTicket(ticket, request.IdUsuarioModificacion, estadoAnterior, estadoDestino.Nombre, request.Comentario);
             ticket.IdEstadoTicket = request.IdEstadoTicket;
             ticket.FechaActualizacion = DateTime.Now;
 
@@ -631,43 +639,8 @@ namespace TuTicketAPI.Controllers
             var nombreUsuarioModificacion = await _ticketHistoryService.ObtenerNombreUsuario(request.IdUsuarioModificacion);
 
             _ticketHistoryService.RegistrarCambio(_context.TicketHistoriales, ticket.IdTicket, "Prioridad ticket", prioridadAnterior, prioridadDestino.Nombre, request.IdUsuarioModificacion, _ticketHistoryService.ConstruirComentarioCambio(nombreUsuarioModificacion, "cambio la prioridad del ticket", prioridadAnterior, prioridadDestino.Nombre, request.Comentario));
+            await _ticketNotificationService.NotificarCambioPrioridadTicket(ticket, request.IdUsuarioModificacion, prioridadAnterior, prioridadDestino.Nombre, request.Comentario);
             ticket.IdPrioridadTicket = request.IdPrioridadTicket;
-            ticket.FechaActualizacion = DateTime.Now;
-
-            await _context.SaveChangesAsync();
-
-            return NoContent();
-        }
-
-        [HttpDelete("{id:int}")]
-        public async Task<IActionResult> DeleteTicket([FromRoute] int id, [FromQuery] string idUsuarioModificacion)
-        {
-            var ticket = await _context.Tickets.FindAsync(id);
-
-            if (ticket is null)
-            {
-                return NotFound();
-            }
-
-            if (!await _ticketAccessService.PuedeVerTicket(ticket))
-            {
-                return Forbid();
-            }
-
-            if (!await UsuarioActivoExiste(idUsuarioModificacion, nameof(idUsuarioModificacion)))
-            {
-                return ValidationProblem(ModelState);
-            }
-
-            if (!ticket.Activo)
-            {
-                return NoContent();
-            }
-
-            var nombreUsuarioModificacion = await _ticketHistoryService.ObtenerNombreUsuario(idUsuarioModificacion);
-
-            _ticketHistoryService.RegistrarCambio(_context.TicketHistoriales, ticket.IdTicket, "Activo", "Activo", "Inactivo", idUsuarioModificacion, $"{nombreUsuarioModificacion} desactivo el ticket. Valor anterior: Activo. Nuevo valor: Inactivo.");
-            ticket.Activo = false;
             ticket.FechaActualizacion = DateTime.Now;
 
             await _context.SaveChangesAsync();

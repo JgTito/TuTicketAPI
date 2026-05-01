@@ -19,9 +19,9 @@ namespace TuTicketAPI.Services.Common
                 : Task.FromResult(false);
         }
 
-        public Task<bool> TicketActivoExiste(int idTicket)
+        public Task<bool> TicketExiste(int idTicket)
         {
-            return _context.Tickets.AnyAsync(t => t.IdTicket == idTicket && t.Activo);
+            return _context.Tickets.AnyAsync(t => t.IdTicket == idTicket);
         }
 
         public Task<bool> CategoriaActivaExiste(int idCategoriaTicket)

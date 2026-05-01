@@ -82,7 +82,7 @@ namespace TuTicketAPI.Controllers
 
             if (soloActivos)
             {
-                query = query.Where(s => s.Activo && s.Ticket.Activo);
+                query = query.Where(s => s.Activo);
             }
 
             var slas = await query

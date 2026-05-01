@@ -20,6 +20,7 @@ namespace TuTicketAPI.Controllers
         private readonly IWebHostEnvironment _environment;
         private readonly ITicketAccessService _ticketAccessService;
         private readonly ITicketAttachmentService _ticketAttachmentService;
+        private readonly ITicketNotificationService _ticketNotificationService;
         private readonly IReferenceValidationService _referenceValidationService;
 
         public TicketAdjuntoController(
@@ -28,6 +29,7 @@ namespace TuTicketAPI.Controllers
             IWebHostEnvironment environment,
             ITicketAccessService ticketAccessService,
             ITicketAttachmentService ticketAttachmentService,
+            ITicketNotificationService ticketNotificationService,
             IReferenceValidationService referenceValidationService)
         {
             _context = context;
@@ -35,6 +37,7 @@ namespace TuTicketAPI.Controllers
             _environment = environment;
             _ticketAccessService = ticketAccessService;
             _ticketAttachmentService = ticketAttachmentService;
+            _ticketNotificationService = ticketNotificationService;
             _referenceValidationService = referenceValidationService;
         }
 
@@ -130,6 +133,7 @@ namespace TuTicketAPI.Controllers
             {
                 adjuntos = await _ticketAttachmentService.GuardarAdjuntos(idTicket, request.Archivos, request.IdUsuarioSubida, rutasGuardadas);
                 _context.TicketAdjuntos.AddRange(adjuntos);
+                await _ticketNotificationService.NotificarAdjuntosTicket(idTicket, request.IdUsuarioSubida, adjuntos.Count);
                 await _context.SaveChangesAsync();
             }
             catch
@@ -217,9 +221,9 @@ namespace TuTicketAPI.Controllers
         {
             var esValido = true;
 
-            if (!await _referenceValidationService.TicketActivoExiste(idTicket))
+            if (!await _referenceValidationService.TicketExiste(idTicket))
             {
-                ModelState.AddModelError(nameof(idTicket), "El ticket indicado no existe o esta inactivo.");
+                ModelState.AddModelError(nameof(idTicket), "El ticket indicado no existe.");
                 esValido = false;
             }
 

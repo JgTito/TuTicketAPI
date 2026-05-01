@@ -249,7 +249,6 @@ namespace TuTicketAPI.Models
                 entity.Property(e => e.IdUsuarioAsignado).HasMaxLength(450);
                 entity.Property(e => e.FechaCreacion).HasDefaultValueSql("SYSDATETIME()");
                 entity.Property(e => e.CantidadReaperturas).HasDefaultValue(0);
-                entity.Property(e => e.Activo).HasDefaultValue(true);
                 entity.HasIndex(e => e.Codigo).IsUnique();
                 entity.HasIndex(e => e.IdEstadoTicket).HasDatabaseName("IX_Ticket_Estado");
                 entity.HasIndex(e => e.IdPrioridadTicket).HasDatabaseName("IX_Ticket_Prioridad");

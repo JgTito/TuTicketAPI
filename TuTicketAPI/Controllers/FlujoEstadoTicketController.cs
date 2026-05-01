@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TuTicketAPI.Authorization;
+using TuTicketAPI.Dtos.Comun;
 using TuTicketAPI.Dtos.FlujoEstadoTicket;
 using TuTicketAPI.Models;
 using TuTicketAPI.Services.Common;
@@ -29,11 +30,19 @@ namespace TuTicketAPI.Controllers
         }
 
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<FlujoEstadoTicketDto>>> GetFlujosEstadoTicket(
+        public async Task<ActionResult<ResultadoPaginadoDto<FlujoEstadoTicketDto>>> GetFlujosEstadoTicket(
             [FromQuery] bool incluirInactivos = false,
             [FromQuery] int? idEstadoOrigen = null,
-            [FromQuery] int? idEstadoDestino = null)
+            [FromQuery] int? idEstadoDestino = null,
+            [FromQuery] int pagina = 1,
+            [FromQuery] int tamanoPagina = 5)
         {
+            var errorPaginacion = ValidarPaginacion(pagina, tamanoPagina);
+            if (errorPaginacion is not null)
+            {
+                return errorPaginacion;
+            }
+
             var query = _context.FlujoEstadoTickets
                 .Include(f => f.EstadoOrigen)
                 .Include(f => f.EstadoDestino)
@@ -54,14 +63,24 @@ namespace TuTicketAPI.Controllers
                 query = query.Where(f => f.IdEstadoDestino == idEstadoDestino.Value);
             }
 
+            var totalRegistros = await query.CountAsync();
+
             var flujos = await query
                 .OrderBy(f => f.EstadoOrigen.Orden)
                 .ThenBy(f => f.EstadoDestino.Orden)
                 .ThenBy(f => f.EstadoOrigen.Nombre)
                 .ThenBy(f => f.EstadoDestino.Nombre)
+                .Skip((pagina - 1) * tamanoPagina)
+                .Take(tamanoPagina)
                 .ToListAsync();
 
-            return Ok(_mapper.Map<IEnumerable<FlujoEstadoTicketDto>>(flujos));
+            var response = CrearResultadoPaginado(
+                pagina,
+                tamanoPagina,
+                totalRegistros,
+                _mapper.Map<IEnumerable<FlujoEstadoTicketDto>>(flujos));
+
+            return Ok(response);
         }
 
         [HttpGet("{id:int}")]

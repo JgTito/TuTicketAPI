@@ -3,7 +3,7 @@ namespace TuTicketAPI.Services.Common
     public interface IReferenceValidationService
     {
         Task<bool> UsuarioActivoExiste(string? idUsuario);
-        Task<bool> TicketActivoExiste(int idTicket);
+        Task<bool> TicketExiste(int idTicket);
         Task<bool> CategoriaActivaExiste(int idCategoriaTicket);
         Task<bool> EquipoSoporteActivoExiste(int idEquipoSoporte);
         Task<bool> EstadoTicketActivoExiste(int idEstadoTicket);

@@ -24,6 +24,5 @@ namespace TuTicketAPI.Dtos.Ticket
         public DateTime? FechaResolucion { get; set; }
         public DateTime? FechaCierre { get; set; }
         public int CantidadReaperturas { get; set; }
-        public bool Activo { get; set; }
     }
 }

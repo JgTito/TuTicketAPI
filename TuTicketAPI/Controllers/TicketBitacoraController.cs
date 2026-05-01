@@ -18,13 +18,20 @@ namespace TuTicketAPI.Controllers
         private readonly ApplicationDbContext _context;
         private readonly IMapper _mapper;
         private readonly ITicketAccessService _ticketAccessService;
+        private readonly ITicketNotificationService _ticketNotificationService;
         private readonly IReferenceValidationService _referenceValidationService;
 
-        public TicketBitacoraController(ApplicationDbContext context, IMapper mapper, ITicketAccessService ticketAccessService, IReferenceValidationService referenceValidationService)
+        public TicketBitacoraController(
+            ApplicationDbContext context,
+            IMapper mapper,
+            ITicketAccessService ticketAccessService,
+            ITicketNotificationService ticketNotificationService,
+            IReferenceValidationService referenceValidationService)
         {
             _context = context;
             _mapper = mapper;
             _ticketAccessService = ticketAccessService;
+            _ticketNotificationService = ticketNotificationService;
             _referenceValidationService = referenceValidationService;
         }
 
@@ -110,9 +117,9 @@ namespace TuTicketAPI.Controllers
                 return Forbid();
             }
 
-            if (!await _referenceValidationService.TicketActivoExiste(idTicket))
+            if (!await _referenceValidationService.TicketExiste(idTicket))
             {
-                ModelState.AddModelError(nameof(idTicket), "El ticket indicado no existe o esta inactivo.");
+                ModelState.AddModelError(nameof(idTicket), "El ticket indicado no existe.");
                 return ValidationProblem(ModelState);
             }
 
@@ -126,6 +133,7 @@ namespace TuTicketAPI.Controllers
             bitacora.IdTicket = idTicket;
 
             _context.TicketBitacoras.Add(bitacora);
+            await _ticketNotificationService.NotificarComentarioTicket(idTicket, request.IdUsuarioCreacion, request.EsInterno);
             await _context.SaveChangesAsync();
 
             await _context.Entry(bitacora).Reference(b => b.UsuarioCreacion).LoadAsync();

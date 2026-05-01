@@ -194,15 +194,15 @@ namespace TuTicketAPI.Controllers
                 return false;
             }
 
-            if (!await _referenceValidationService.TicketActivoExiste(idTicketOrigen))
+            if (!await _referenceValidationService.TicketExiste(idTicketOrigen))
             {
-                ModelState.AddModelError(nameof(idTicketOrigen), "El ticket origen no existe o esta inactivo.");
+                ModelState.AddModelError(nameof(idTicketOrigen), "El ticket origen no existe.");
                 esValido = false;
             }
 
-            if (!await _referenceValidationService.TicketActivoExiste(request.IdTicketRelacionado))
+            if (!await _referenceValidationService.TicketExiste(request.IdTicketRelacionado))
             {
-                ModelState.AddModelError(nameof(request.IdTicketRelacionado), "El ticket relacionado no existe o esta inactivo.");
+                ModelState.AddModelError(nameof(request.IdTicketRelacionado), "El ticket relacionado no existe.");
                 esValido = false;
             }
 
@@ -231,15 +231,15 @@ namespace TuTicketAPI.Controllers
                 return false;
             }
 
-            if (!await _referenceValidationService.TicketActivoExiste(request.IdTicketOrigen))
+            if (!await _referenceValidationService.TicketExiste(request.IdTicketOrigen))
             {
-                ModelState.AddModelError(nameof(request.IdTicketOrigen), "El ticket origen no existe o esta inactivo.");
+                ModelState.AddModelError(nameof(request.IdTicketOrigen), "El ticket origen no existe.");
                 esValido = false;
             }
 
-            if (!await _referenceValidationService.TicketActivoExiste(request.IdTicketRelacionado))
+            if (!await _referenceValidationService.TicketExiste(request.IdTicketRelacionado))
             {
-                ModelState.AddModelError(nameof(request.IdTicketRelacionado), "El ticket relacionado no existe o esta inactivo.");
+                ModelState.AddModelError(nameof(request.IdTicketRelacionado), "El ticket relacionado no existe.");
                 esValido = false;
             }
 

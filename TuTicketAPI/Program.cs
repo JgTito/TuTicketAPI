@@ -69,6 +69,7 @@ builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
 builder.Services.AddScoped<ITicketAccessService, TicketAccessService>();
 builder.Services.AddScoped<ITicketAttachmentService, TicketAttachmentService>();
 builder.Services.AddScoped<ITicketHistoryService, TicketHistoryService>();
+builder.Services.AddScoped<ITicketNotificationService, TicketNotificationService>();
 builder.Services.AddScoped<IReferenceValidationService, ReferenceValidationService>();
 
 builder.Services.AddControllers();
