@@ -2,6 +2,14 @@
 
 API REST para gestion de tickets de soporte. Incluye autenticacion JWT con ASP.NET Core Identity, administracion de usuarios, mantenedores de catalogos, configuracion de responsables/equipos, ciclo de vida de tickets, SLA, adjuntos, bitacora, relaciones, notificaciones, endpoints para graficos y servicios para informes IA.
 
+## Funcionalidades destacadas
+
+- Gestion completa de tickets de soporte con estados, prioridad, responsable, SLA, adjuntos, bitacora, historial y relaciones entre tickets.
+- Control de acceso por roles para `Administrador`, `ResolvedorTicket` y `Solicitante`.
+- Mantenedores para catalogos, equipos, responsables, flujo de estados, SLA y administracion de usuarios.
+- Dashboard con endpoints para graficos operativos y seguimiento de soporte.
+- Generacion de informe mensual inteligente con IA usando Gemini, basado en tickets historicos, cumplimiento SLA, categorias criticas, problemas recurrentes, comentarios y recomendaciones de mejora.
+
 ## Stack
 
 - .NET 9
@@ -315,7 +323,9 @@ Todos respetan permisos por rol y visibilidad de tickets.
 Controller: `InformeIaSoporteController`
 
 - `GET /api/InformeIaSoporte/mensual/descargar`
-  - Genera y descarga el informe mensual inteligente de soporte.
+  - Genera y descarga un informe mensual inteligente de soporte con IA.
+  - Analiza tickets del periodo, volumen por categoria/subcategoria, SLA, tiempos de respuesta/resolucion, comentarios, problemas recurrentes y responsables.
+  - Entrega un resumen ejecutivo con hallazgos, riesgos operativos y recomendaciones accionables para mejorar la atencion de soporte.
   - Protegido solo para `Administrador`.
   - Parametros:
     - `anio`
