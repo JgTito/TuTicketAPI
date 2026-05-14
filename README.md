@@ -1,6 +1,6 @@
 # TuTicketAPI
 
-API REST para gestion de tickets de soporte. Incluye autenticacion JWT con ASP.NET Core Identity, mantenedores de catalogos, configuracion de responsables/equipos, ciclo de vida de tickets, SLA, adjuntos, bitacora, relaciones, notificaciones y endpoints para graficos.
+API REST para gestion de tickets de soporte. Incluye autenticacion JWT con ASP.NET Core Identity, administracion de usuarios, mantenedores de catalogos, configuracion de responsables/equipos, ciclo de vida de tickets, SLA, adjuntos, bitacora, relaciones, notificaciones y endpoints para graficos.
 
 ## Stack
 
@@ -165,6 +165,37 @@ Endpoints principales:
 - `GET /api/Usuario/select`
   - Lista usuarios para selects.
 
+## Administracion de usuarios
+
+Controller: `AdminUsuarioController`
+
+La administracion de cuentas esta protegida solo para el rol `Administrador`. Permite crear usuarios internos, consultar cuentas, editar datos base, activar/desactivar usuarios, administrar roles y resetear contrasenas.
+
+Endpoints principales:
+
+- `GET /api/AdminUsuario`
+  - Lista paginada con filtros por texto, estado activo y rol.
+- `GET /api/AdminUsuario/{id}`
+  - Obtiene el detalle de una cuenta.
+- `GET /api/AdminUsuario/roles`
+  - Lista roles disponibles para asignacion.
+- `POST /api/AdminUsuario`
+  - Crea una cuenta con roles definidos por el administrador.
+- `PUT /api/AdminUsuario/{id}`
+  - Actualiza nombre, email y estado activo.
+- `PUT /api/AdminUsuario/{id}/estado`
+  - Activa o desactiva una cuenta.
+- `PUT /api/AdminUsuario/{id}/roles`
+  - Reemplaza los roles asignados a un usuario.
+- `PUT /api/AdminUsuario/{id}/reset-password`
+  - Define una nueva contrasena para la cuenta.
+
+Reglas de seguridad:
+
+- Un administrador no puede desactivar su propia cuenta.
+- Un administrador no puede quitarse a si mismo el rol `Administrador`.
+- Solo usuarios activos pueden iniciar sesion y ser usados como referencias operativas.
+
 ## Roles
 
 - `Administrador`
@@ -276,6 +307,7 @@ Catalogos base:
 
 Configuracion operacional:
 
+- `AdminUsuarioController`
 - `CategoriaResponsableController`
 - `EquipoSoporteUsuarioController`
 - `CategoriaEquipoSoporteController`
@@ -329,5 +361,7 @@ Varios mantenedores incluyen endpoints `select` para alimentar formularios del f
 - Los solicitantes solo pueden ver informacion de sus propios tickets.
 - Los resolvedores ven tickets asignados y tickets permitidos por la relacion categoria/equipo soporte.
 - El administrador puede consultar y operar sobre toda la informacion protegida.
+- Solo el administrador puede crear, editar, activar/desactivar, resetear contrasenas y administrar roles de usuarios.
+- Un administrador no puede desactivar su propia cuenta ni quitarse a si mismo el rol `Administrador`.
 - Los listados principales usan paginacion para evitar respuestas grandes.
 - Los filtros por fechas validan que la fecha desde no sea mayor que la fecha hasta.
