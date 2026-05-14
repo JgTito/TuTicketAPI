@@ -6,6 +6,7 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using TuTicketAPI.Models;
 using TuTicketAPI.Services.Common;
+using TuTicketAPI.Services.Informes;
 using TuTicketAPI.Services.Tickets;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -65,11 +66,19 @@ builder.Services.AddAuthorization();
 
 builder.Services.AddAutoMapper(_ => { }, typeof(Program).Assembly);
 builder.Services.AddHttpContextAccessor();
+builder.Services.Configure<GoogleGeminiOptions>(builder.Configuration.GetSection(GoogleGeminiOptions.SectionName));
 builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
 builder.Services.AddScoped<ITicketAccessService, TicketAccessService>();
 builder.Services.AddScoped<ITicketAttachmentService, TicketAttachmentService>();
 builder.Services.AddScoped<ITicketHistoryService, TicketHistoryService>();
 builder.Services.AddScoped<ITicketNotificationService, TicketNotificationService>();
+builder.Services.AddScoped<IInformeIaSoporteService, InformeIaSoporteService>();
+builder.Services.AddHttpClient<IInformeIaGeneracionService, GeminiInformeIaGeneracionService>((serviceProvider, httpClient) =>
+{
+    var options = serviceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<GoogleGeminiOptions>>().Value;
+    httpClient.BaseAddress = new Uri(options.BaseUrl.TrimEnd('/') + "/");
+    httpClient.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds <= 0 ? 120 : options.TimeoutSeconds);
+});
 builder.Services.AddScoped<IReferenceValidationService, ReferenceValidationService>();
 
 builder.Services.AddControllers();

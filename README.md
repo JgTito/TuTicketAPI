@@ -1,6 +1,6 @@
 # TuTicketAPI
 
-API REST para gestion de tickets de soporte. Incluye autenticacion JWT con ASP.NET Core Identity, administracion de usuarios, mantenedores de catalogos, configuracion de responsables/equipos, ciclo de vida de tickets, SLA, adjuntos, bitacora, relaciones, notificaciones y endpoints para graficos.
+API REST para gestion de tickets de soporte. Incluye autenticacion JWT con ASP.NET Core Identity, administracion de usuarios, mantenedores de catalogos, configuracion de responsables/equipos, ciclo de vida de tickets, SLA, adjuntos, bitacora, relaciones, notificaciones, endpoints para graficos y servicios para informes IA.
 
 ## Stack
 
@@ -58,6 +58,22 @@ La clave JWT debe configurarse en `TuTicketAPI/appsettings.Development.json` o m
   "ExpirationMinutes": 120
 }
 ```
+
+Configuracion para informes IA con Gemini:
+
+```json
+"GoogleGemini": {
+  "ApiKey": "",
+  "BaseUrl": "https://generativelanguage.googleapis.com/v1beta",
+  "Modelo": "gemini-3.1-flash-lite",
+  "Proveedor": "Google",
+  "Temperatura": 0.2,
+  "MaxOutputTokens": 4096,
+  "TimeoutSeconds": 120
+}
+```
+
+La clave `GoogleGemini:ApiKey` debe configurarse como secreto local, variable de entorno o configuracion segura del ambiente.
 
 ## Ejecucion local
 
@@ -294,6 +310,28 @@ Controller: `GraficosController`
 
 Todos respetan permisos por rol y visibilidad de tickets.
 
+### Informes IA de soporte
+
+Controller: `InformeIaSoporteController`
+
+- `GET /api/InformeIaSoporte/mensual/descargar`
+  - Genera y descarga el informe mensual inteligente de soporte.
+  - Protegido solo para `Administrador`.
+  - Parametros:
+    - `anio`
+    - `mes`
+    - `limiteTicketsMuestra`
+    - `formato`: `markdown`, `md` o `txt`
+
+Servicios internos:
+
+- `InformeIaSoporteService`
+  - Genera el contexto mensual estructurado para alimentar una IA: metricas, rankings, problemas recurrentes, comentarios frecuentes, muestra de tickets, prompt de sistema, prompt de usuario y payload para Gemini.
+- `GeminiInformeIaGeneracionService`
+  - Envia el contexto a Gemini y obtiene el informe generado.
+
+La generacion usa la API de Gemini mediante `generateContent`. El contexto y el prompt se preparan en servicios separados para mantener la logica de negocio fuera del controller.
+
 ## Mantenedores
 
 Catalogos base:
@@ -329,6 +367,10 @@ Varios mantenedores incluyen endpoints `select` para alimentar formularios del f
   - Construye historial y mensajes descriptivos.
 - `TicketNotificationService`
   - Crea notificaciones automaticas de eventos relevantes del ticket.
+- `InformeIaSoporteService`
+  - Construye el contexto mensual, prompt y payload para generar informes ejecutivos con IA.
+- `GeminiInformeIaGeneracionService`
+  - Se comunica con Gemini, envia el contexto mensual y obtiene el informe ejecutivo generado.
 
 ## Reglas importantes de negocio
 
@@ -358,6 +400,7 @@ Varios mantenedores incluyen endpoints `select` para alimentar formularios del f
 - La descarga de adjuntos valida que la ruta fisica este dentro de la carpeta `Uploads`.
 - Las bitacoras pueden ser internas o visibles segun el campo `EsInterno`.
 - Las notificaciones automaticas de tickets se crean para el usuario asignado y no para el usuario que ejecuta el cambio.
+- Los informes IA mensuales se generan desde un servicio interno, se alimentan solo con datos del periodo solicitado y entregan un prompt listo para `gemini-3.1-flash-lite`.
 - Los solicitantes solo pueden ver informacion de sus propios tickets.
 - Los resolvedores ven tickets asignados y tickets permitidos por la relacion categoria/equipo soporte.
 - El administrador puede consultar y operar sobre toda la informacion protegida.

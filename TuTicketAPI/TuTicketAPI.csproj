@@ -4,6 +4,7 @@
     <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>tuticketapi-8b7c9e52-4972-4f4d-9341-1e633ac040d9</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
