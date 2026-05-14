@@ -12,8 +12,5 @@ namespace TuTicketAPI.Dtos.TicketRelacion
 
         [MaxLength(500)]
         public string? Observacion { get; set; }
-
-        [Required]
-        public string IdUsuarioCreacion { get; set; } = string.Empty;
     }
 }

@@ -20,19 +20,22 @@ namespace TuTicketAPI.Controllers
         private readonly ITicketAccessService _ticketAccessService;
         private readonly ITicketNotificationService _ticketNotificationService;
         private readonly IReferenceValidationService _referenceValidationService;
+        private readonly ICurrentUserService _currentUserService;
 
         public TicketBitacoraController(
             ApplicationDbContext context,
             IMapper mapper,
             ITicketAccessService ticketAccessService,
             ITicketNotificationService ticketNotificationService,
-            IReferenceValidationService referenceValidationService)
+            IReferenceValidationService referenceValidationService,
+            ICurrentUserService currentUserService)
         {
             _context = context;
             _mapper = mapper;
             _ticketAccessService = ticketAccessService;
             _ticketNotificationService = ticketNotificationService;
             _referenceValidationService = referenceValidationService;
+            _currentUserService = currentUserService;
         }
 
         [HttpGet("/api/Ticket/{idTicket:int}/bitacora")]
@@ -62,6 +65,11 @@ namespace TuTicketAPI.Controllers
             if (!incluirInactivos)
             {
                 query = query.Where(b => b.Activo);
+            }
+
+            if (!PuedeVerBitacorasInternas())
+            {
+                query = query.Where(b => !b.EsInterno);
             }
 
             if (esInterno.HasValue)
@@ -104,6 +112,11 @@ namespace TuTicketAPI.Controllers
                 return Forbid();
             }
 
+            if (bitacora.EsInterno && !PuedeVerBitacorasInternas())
+            {
+                return Forbid();
+            }
+
             return Ok(_mapper.Map<TicketBitacoraDto>(bitacora));
         }
 
@@ -126,6 +139,12 @@ namespace TuTicketAPI.Controllers
             if (!await _referenceValidationService.UsuarioActivoExiste(request.IdUsuarioCreacion))
             {
                 ModelState.AddModelError(nameof(request.IdUsuarioCreacion), "El usuario indicado no existe o esta inactivo.");
+                return ValidationProblem(ModelState);
+            }
+
+            if (request.EsInterno && !PuedeVerBitacorasInternas())
+            {
+                ModelState.AddModelError(nameof(request.EsInterno), "Solo administradores y resolvedores pueden crear comentarios internos.");
                 return ValidationProblem(ModelState);
             }
 
@@ -158,6 +177,17 @@ namespace TuTicketAPI.Controllers
                 return Forbid();
             }
 
+            if (bitacora.EsInterno && !PuedeVerBitacorasInternas())
+            {
+                return Forbid();
+            }
+
+            if (request.EsInterno && !PuedeVerBitacorasInternas())
+            {
+                ModelState.AddModelError(nameof(request.EsInterno), "Solo administradores y resolvedores pueden marcar comentarios como internos.");
+                return ValidationProblem(ModelState);
+            }
+
             Normalizar(request);
             _mapper.Map(request, bitacora);
 
@@ -181,6 +211,11 @@ namespace TuTicketAPI.Controllers
                 return Forbid();
             }
 
+            if (bitacora.EsInterno && !PuedeVerBitacorasInternas())
+            {
+                return Forbid();
+            }
+
             if (!bitacora.Activo)
             {
                 return NoContent();
@@ -190,6 +225,11 @@ namespace TuTicketAPI.Controllers
             await _context.SaveChangesAsync();
 
             return NoContent();
+        }
+
+        private bool PuedeVerBitacorasInternas()
+        {
+            return _currentUserService.EsAdministrador || _currentUserService.EsResolvedorSinAdministrador;
         }
 
         private static void Normalizar(CrearTicketBitacoraDto request)

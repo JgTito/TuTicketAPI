@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using TuTicketAPI.Dtos.TicketRelacion;
 
 namespace TuTicketAPI.Dtos.Ticket
 {
@@ -16,6 +17,8 @@ namespace TuTicketAPI.Dtos.Ticket
 
         [Range(1, int.MaxValue)]
         public int IdSubcategoriaTicket { get; set; }
+
+        public List<CrearTicketRelacionDto>? Relaciones { get; set; }
 
         public List<IFormFile>? Archivos { get; set; }
     }

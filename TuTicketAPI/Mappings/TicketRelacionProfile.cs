@@ -14,7 +14,9 @@ namespace TuTicketAPI.Mappings
                 .ForMember(dest => dest.NombreTipoRelacionTicket, opt => opt.MapFrom(src => src.TipoRelacionTicket.Nombre))
                 .ForMember(dest => dest.NombreUsuarioCreacion, opt => opt.MapFrom(src => src.UsuarioCreacion.NombreCompleto));
             CreateMap<CrearTicketRelacionDto, TicketRelacion>()
-                .ForMember(dest => dest.IdTicketOrigen, opt => opt.Ignore());
+                .ForMember(dest => dest.IdTicketOrigen, opt => opt.Ignore())
+                .ForMember(dest => dest.IdUsuarioCreacion, opt => opt.Ignore())
+                .ForMember(dest => dest.FechaCreacion, opt => opt.Ignore());
             CreateMap<ActualizarTicketRelacionDto, TicketRelacion>()
                 .ForMember(dest => dest.FechaCreacion, opt => opt.Ignore())
                 .ForMember(dest => dest.IdUsuarioCreacion, opt => opt.Ignore());

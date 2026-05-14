@@ -11,7 +11,7 @@ namespace TuTicketAPI.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    [Authorize(Roles = AppRoles.Administrador)]
+    [Authorize]
     public class TipoRelacionTicketController : ApiControllerBase
     {
         private readonly ApplicationDbContext _context;
@@ -23,6 +23,7 @@ namespace TuTicketAPI.Controllers
             _mapper = mapper;
         }
 
+        [Authorize(Roles = AppRoles.Administrador)]
         [HttpGet]
         public async Task<ActionResult<ResultadoPaginadoDto<TipoRelacionTicketDto>>> GetTiposRelacionTicket(
             [FromQuery] bool incluirInactivos = false,
@@ -59,6 +60,39 @@ namespace TuTicketAPI.Controllers
             return Ok(response);
         }
 
+        [Authorize(Roles = $"{AppRoles.Administrador},{AppRoles.ResolvedorTicket},{AppRoles.Solicitante}")]
+        [HttpGet("select")]
+        public async Task<ActionResult<IEnumerable<TipoRelacionTicketSelectDto>>> GetTiposRelacionTicketSelect(
+            [FromQuery] string? buscar = null,
+            [FromQuery] bool incluirInactivos = false)
+        {
+            var query = _context.TipoRelacionTickets.AsNoTracking();
+
+            if (!incluirInactivos)
+            {
+                query = query.Where(t => t.Activo);
+            }
+
+            if (!string.IsNullOrWhiteSpace(buscar))
+            {
+                var filtro = buscar.Trim();
+                query = query.Where(t => t.Nombre.Contains(filtro));
+            }
+
+            var tiposRelacion = await query
+                .OrderBy(t => t.Nombre)
+                .Select(t => new TipoRelacionTicketSelectDto
+                {
+                    IdTipoRelacionTicket = t.IdTipoRelacionTicket,
+                    Nombre = t.Nombre,
+                    Descripcion = t.Descripcion
+                })
+                .ToListAsync();
+
+            return Ok(tiposRelacion);
+        }
+
+        [Authorize(Roles = AppRoles.Administrador)]
         [HttpGet("{id:int}")]
         public async Task<ActionResult<TipoRelacionTicketDto>> GetTipoRelacionTicket([FromRoute] int id)
         {
@@ -74,6 +108,7 @@ namespace TuTicketAPI.Controllers
             return Ok(_mapper.Map<TipoRelacionTicketDto>(tipoRelacion));
         }
 
+        [Authorize(Roles = AppRoles.Administrador)]
         [HttpPost]
         public async Task<ActionResult<TipoRelacionTicketDto>> CreateTipoRelacionTicket([FromBody] CrearTipoRelacionTicketDto request)
         {
@@ -98,6 +133,7 @@ namespace TuTicketAPI.Controllers
             return CreatedAtAction(nameof(GetTipoRelacionTicket), new { id = tipoRelacion.IdTipoRelacionTicket }, response);
         }
 
+        [Authorize(Roles = AppRoles.Administrador)]
         [HttpPut("{id:int}")]
         public async Task<IActionResult> UpdateTipoRelacionTicket([FromRoute] int id, [FromBody] ActualizarTipoRelacionTicketDto request)
         {
@@ -126,6 +162,7 @@ namespace TuTicketAPI.Controllers
             return NoContent();
         }
 
+        [Authorize(Roles = AppRoles.Administrador)]
         [HttpDelete("{id:int}")]
         public async Task<IActionResult> DeleteTipoRelacionTicket([FromRoute] int id)
         {

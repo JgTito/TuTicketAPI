@@ -7,6 +7,7 @@ using TuTicketAPI.Constants;
 using TuTicketAPI.Dtos.Comun;
 using TuTicketAPI.Dtos.Ticket;
 using TuTicketAPI.Dtos.TicketHistorial;
+using TuTicketAPI.Dtos.TicketRelacion;
 using TuTicketAPI.Enums;
 using TuTicketAPI.Models;
 using TuTicketAPI.Services.Common;
@@ -121,6 +122,7 @@ namespace TuTicketAPI.Controllers
             {
                 var filtro = buscar.Trim();
                 query = query.Where(t =>
+                    t.Codigo.Contains(filtro) ||
                     t.Titulo.Contains(filtro) ||
                     t.Descripcion.Contains(filtro));
             }
@@ -200,6 +202,52 @@ namespace TuTicketAPI.Controllers
                 _mapper.Map<IEnumerable<TicketDto>>(tickets));
 
             return Ok(response);
+        }
+
+        [HttpGet("select-relacionables")]
+        public async Task<ActionResult<IEnumerable<TicketSelectDto>>> GetTicketsRelacionablesSelect(
+            [FromQuery] string? buscar = null,
+            [FromQuery] int? idTicketExcluir = null,
+            [FromQuery] int tamanoPagina = 25)
+        {
+            if (tamanoPagina < 1 || tamanoPagina > 50)
+            {
+                ModelState.AddModelError(nameof(tamanoPagina), "El tamano de pagina debe estar entre 1 y 50.");
+                return ValidationProblem(ModelState);
+            }
+
+            var query = _context.Tickets.AsNoTracking();
+            query = _ticketAccessService.AplicarFiltroAcceso(query);
+
+            if (idTicketExcluir.HasValue)
+            {
+                query = query.Where(t => t.IdTicket != idTicketExcluir.Value);
+            }
+
+            if (!string.IsNullOrWhiteSpace(buscar))
+            {
+                var filtro = buscar.Trim();
+                query = query.Where(t =>
+                    t.Codigo.Contains(filtro) ||
+                    t.Titulo.Contains(filtro) ||
+                    t.Descripcion.Contains(filtro));
+            }
+
+            var tickets = await query
+                .OrderByDescending(t => t.FechaCreacion)
+                .ThenBy(t => t.Codigo)
+                .Take(tamanoPagina)
+                .Select(t => new TicketSelectDto
+                {
+                    IdTicket = t.IdTicket,
+                    Codigo = t.Codigo,
+                    Titulo = t.Titulo,
+                    Descripcion = t.Descripcion,
+                    NombreEstadoTicket = t.EstadoTicket.Nombre
+                })
+                .ToListAsync();
+
+            return Ok(tickets);
         }
 
         [HttpGet("{id:int}")]
@@ -325,6 +373,16 @@ namespace TuTicketAPI.Controllers
                 return ValidationProblem(ModelState);
             }
 
+            if (!await RelacionesValidas(request.Relaciones))
+            {
+                return ValidationProblem(ModelState);
+            }
+
+            if (!await RelacionesVisibles(request.Relaciones))
+            {
+                return Forbid();
+            }
+
             if (!ArchivosValidos(request.Archivos, requiereAlMenosUno: false))
             {
                 return ValidationProblem(ModelState);
@@ -358,6 +416,8 @@ namespace TuTicketAPI.Controllers
 
                 var adjuntos = await _ticketAttachmentService.GuardarAdjuntos(ticket.IdTicket, request.Archivos, idUsuarioSolicitante, rutasGuardadas);
                 _context.TicketAdjuntos.AddRange(adjuntos);
+
+                await CrearRelacionesIniciales(ticket, request.Relaciones, idUsuarioSolicitante);
 
                 _context.TicketHistoriales.Add(_ticketHistoryService.CrearHistorial(
                     ticket.IdTicket,
@@ -678,6 +738,74 @@ namespace TuTicketAPI.Controllers
             return esValido;
         }
 
+        private async Task<bool> RelacionesValidas(IReadOnlyList<CrearTicketRelacionDto>? relaciones)
+        {
+            if (relaciones is null || relaciones.Count == 0)
+            {
+                return true;
+            }
+
+            var esValido = true;
+            var relacionesUnicas = new HashSet<(int IdTicketRelacionado, int IdTipoRelacionTicket)>();
+
+            for (var i = 0; i < relaciones.Count; i++)
+            {
+                var relacion = relaciones[i];
+                var campoTicket = $"{nameof(CrearTicketDto.Relaciones)}[{i}].{nameof(CrearTicketRelacionDto.IdTicketRelacionado)}";
+                var campoTipo = $"{nameof(CrearTicketDto.Relaciones)}[{i}].{nameof(CrearTicketRelacionDto.IdTipoRelacionTicket)}";
+
+                if (relacion.IdTicketRelacionado <= 0)
+                {
+                    ModelState.AddModelError(campoTicket, "El ticket relacionado es obligatorio.");
+                    esValido = false;
+                }
+                else if (!await _referenceValidationService.TicketExiste(relacion.IdTicketRelacionado))
+                {
+                    ModelState.AddModelError(campoTicket, "El ticket relacionado no existe.");
+                    esValido = false;
+                }
+
+                if (relacion.IdTipoRelacionTicket <= 0)
+                {
+                    ModelState.AddModelError(campoTipo, "El tipo de relacion es obligatorio.");
+                    esValido = false;
+                }
+                else if (!await _referenceValidationService.TipoRelacionTicketActivoExiste(relacion.IdTipoRelacionTicket))
+                {
+                    ModelState.AddModelError(campoTipo, "El tipo de relacion indicado no existe o esta inactivo.");
+                    esValido = false;
+                }
+
+                if (relacion.IdTicketRelacionado > 0 &&
+                    relacion.IdTipoRelacionTicket > 0 &&
+                    !relacionesUnicas.Add((relacion.IdTicketRelacionado, relacion.IdTipoRelacionTicket)))
+                {
+                    ModelState.AddModelError(campoTicket, "La misma relacion ya fue agregada para este ticket.");
+                    esValido = false;
+                }
+            }
+
+            return esValido;
+        }
+
+        private async Task<bool> RelacionesVisibles(IReadOnlyList<CrearTicketRelacionDto>? relaciones)
+        {
+            if (relaciones is null || relaciones.Count == 0)
+            {
+                return true;
+            }
+
+            foreach (var relacion in relaciones)
+            {
+                if (!await _ticketAccessService.PuedeVerTicket(relacion.IdTicketRelacionado))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
         private void ValidarRangoFechas(DateTime? desde, DateTime? hasta, string campoDesde, string nombreFecha)
         {
             if (desde.HasValue && hasta.HasValue && desde.Value > hasta.Value)
@@ -778,6 +906,64 @@ namespace TuTicketAPI.Controllers
             await _context.Entry(ticket).Reference(t => t.UsuarioAsignado).LoadAsync();
         }
 
+        private async Task CrearRelacionesIniciales(Ticket ticket, IReadOnlyList<CrearTicketRelacionDto>? relaciones, string idUsuarioCreacion)
+        {
+            if (relaciones is null || relaciones.Count == 0)
+            {
+                return;
+            }
+
+            var idsTicketsRelacionados = relaciones
+                .Select(r => r.IdTicketRelacionado)
+                .Distinct()
+                .ToList();
+
+            var codigosTickets = await _context.Tickets
+                .Where(t => idsTicketsRelacionados.Contains(t.IdTicket))
+                .Select(t => new { t.IdTicket, t.Codigo })
+                .ToDictionaryAsync(t => t.IdTicket, t => t.Codigo);
+
+            var idsTiposRelacion = relaciones
+                .Select(r => r.IdTipoRelacionTicket)
+                .Distinct()
+                .ToList();
+
+            var nombresTiposRelacion = await _context.TipoRelacionTickets
+                .Where(t => idsTiposRelacion.Contains(t.IdTipoRelacionTicket))
+                .Select(t => new { t.IdTipoRelacionTicket, t.Nombre })
+                .ToDictionaryAsync(t => t.IdTipoRelacionTicket, t => t.Nombre);
+
+            foreach (var relacionRequest in relaciones)
+            {
+                var relacion = new TicketRelacion
+                {
+                    IdTicketOrigen = ticket.IdTicket,
+                    IdTicketRelacionado = relacionRequest.IdTicketRelacionado,
+                    IdTipoRelacionTicket = relacionRequest.IdTipoRelacionTicket,
+                    Observacion = relacionRequest.Observacion,
+                    IdUsuarioCreacion = idUsuarioCreacion,
+                    FechaCreacion = DateTime.Now,
+                    Activo = true
+                };
+
+                _context.TicketRelaciones.Add(relacion);
+
+                var codigoRelacionado = codigosTickets.GetValueOrDefault(relacionRequest.IdTicketRelacionado) ?? $"Ticket {relacionRequest.IdTicketRelacionado}";
+                var tipoRelacion = nombresTiposRelacion.GetValueOrDefault(relacionRequest.IdTipoRelacionTicket) ?? "Relacion";
+                var detalleObservacion = string.IsNullOrWhiteSpace(relacionRequest.Observacion)
+                    ? string.Empty
+                    : $" Observacion: {relacionRequest.Observacion}.";
+
+                _context.TicketHistoriales.Add(_ticketHistoryService.CrearHistorial(
+                    ticket.IdTicket,
+                    "Relacion ticket",
+                    null,
+                    $"{tipoRelacion}: {codigoRelacionado}",
+                    idUsuarioCreacion,
+                    $"Ticket {ticket.Codigo} relacionado con {codigoRelacionado} como {tipoRelacion}.{detalleObservacion}"));
+            }
+        }
+
         private async Task CrearSlaActivo(Ticket ticket)
         {
             var idCategoriaTicket = await _context.SubcategoriaTickets
@@ -837,6 +1023,16 @@ namespace TuTicketAPI.Controllers
         {
             request.Titulo = request.Titulo.Trim();
             request.Descripcion = request.Descripcion.Trim();
+
+            if (request.Relaciones is null)
+            {
+                return;
+            }
+
+            foreach (var relacion in request.Relaciones)
+            {
+                relacion.Observacion = string.IsNullOrWhiteSpace(relacion.Observacion) ? null : relacion.Observacion.Trim();
+            }
         }
 
         private static void Normalizar(ActualizarTicketDto request)

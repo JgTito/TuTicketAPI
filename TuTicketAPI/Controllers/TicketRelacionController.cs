@@ -85,6 +85,19 @@ namespace TuTicketAPI.Controllers
         {
             Normalizar(request);
 
+            var idUsuarioCreacion = _currentUserService.IdUsuario;
+
+            if (idUsuarioCreacion is null)
+            {
+                return Unauthorized();
+            }
+
+            if (!await _referenceValidationService.UsuarioActivoExiste(idUsuarioCreacion))
+            {
+                ModelState.AddModelError("UsuarioCreacion", "El usuario autenticado no existe o esta inactivo.");
+                return ValidationProblem(ModelState);
+            }
+
             if (!await _ticketAccessService.PuedeVerTicket(idTicket))
             {
                 return Forbid();
@@ -95,6 +108,11 @@ namespace TuTicketAPI.Controllers
                 return ValidationProblem(ModelState);
             }
 
+            if (!await _ticketAccessService.PuedeVerTicket(request.IdTicketRelacionado))
+            {
+                return Forbid();
+            }
+
             if (await ExisteRelacionActiva(idTicket, request.IdTicketRelacionado, request.IdTipoRelacionTicket))
             {
                 ModelState.AddModelError(nameof(request.IdTicketRelacionado), "Ya existe una relacion activa entre los tickets con ese tipo.");
@@ -103,6 +121,8 @@ namespace TuTicketAPI.Controllers
 
             var relacion = _mapper.Map<TicketRelacion>(request);
             relacion.IdTicketOrigen = idTicket;
+            relacion.IdUsuarioCreacion = idUsuarioCreacion;
+            relacion.FechaCreacion = DateTime.Now;
 
             _context.TicketRelaciones.Add(relacion);
             await _context.SaveChangesAsync();
@@ -212,12 +232,6 @@ namespace TuTicketAPI.Controllers
                 esValido = false;
             }
 
-            if (!await _referenceValidationService.UsuarioActivoExiste(request.IdUsuarioCreacion))
-            {
-                ModelState.AddModelError(nameof(request.IdUsuarioCreacion), "El usuario indicado no existe o esta inactivo.");
-                esValido = false;
-            }
-
             return esValido;
         }
 
@@ -256,8 +270,8 @@ namespace TuTicketAPI.Controllers
         {
             return _context.TicketRelaciones.AnyAsync(r =>
                 r.Activo &&
-                r.IdTicketOrigen == idTicketOrigen &&
-                r.IdTicketRelacionado == idTicketRelacionado &&
+                ((r.IdTicketOrigen == idTicketOrigen && r.IdTicketRelacionado == idTicketRelacionado) ||
+                 (r.IdTicketOrigen == idTicketRelacionado && r.IdTicketRelacionado == idTicketOrigen)) &&
                 r.IdTipoRelacionTicket == idTipoRelacionTicket &&
                 (!idTicketRelacionExcluir.HasValue || r.IdTicketRelacion != idTicketRelacionExcluir.Value));
         }
@@ -272,7 +286,6 @@ namespace TuTicketAPI.Controllers
 
         private static void Normalizar(CrearTicketRelacionDto request)
         {
-            request.IdUsuarioCreacion = request.IdUsuarioCreacion.Trim();
             request.Observacion = string.IsNullOrWhiteSpace(request.Observacion) ? null : request.Observacion.Trim();
         }
 
