@@ -10,7 +10,7 @@ namespace TuTicketAPI.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    [Authorize(Roles = $"{AppRoles.Administrador},{AppRoles.ResolvedorTicket},{AppRoles.Solicitante}")]
+    [Authorize(Roles = AppRoles.Administrador)]
     public class GraficosController : ApiControllerBase
     {
         private readonly ApplicationDbContext _context;
