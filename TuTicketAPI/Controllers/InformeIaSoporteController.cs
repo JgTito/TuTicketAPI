@@ -13,10 +13,14 @@ namespace TuTicketAPI.Controllers
     public class InformeIaSoporteController : ApiControllerBase
     {
         private readonly IInformeIaGeneracionService _informeIaGeneracionService;
+        private readonly IInformeIaPdfService _informeIaPdfService;
 
-        public InformeIaSoporteController(IInformeIaGeneracionService informeIaGeneracionService)
+        public InformeIaSoporteController(
+            IInformeIaGeneracionService informeIaGeneracionService,
+            IInformeIaPdfService informeIaPdfService)
         {
             _informeIaGeneracionService = informeIaGeneracionService;
+            _informeIaPdfService = informeIaPdfService;
         }
 
         [HttpGet("mensual/descargar")]
@@ -24,7 +28,7 @@ namespace TuTicketAPI.Controllers
             [FromQuery] int? anio = null,
             [FromQuery] int? mes = null,
             [FromQuery] int limiteTicketsMuestra = 40,
-            [FromQuery] string formato = "markdown",
+            [FromQuery] string formato = "pdf",
             CancellationToken cancellationToken = default)
         {
             if (!ValidarFormato(formato))
@@ -43,8 +47,9 @@ namespace TuTicketAPI.Controllers
                 var extension = ObtenerExtension(formato);
                 var contentType = ObtenerContentType(formato);
                 var nombreArchivo = CrearNombreArchivo(informe, extension);
-                var contenido = CrearContenidoDescarga(informe);
-                var bytes = Encoding.UTF8.GetBytes(contenido);
+                var bytes = EsFormatoPdf(formato)
+                    ? _informeIaPdfService.GenerarPdf(informe)
+                    : Encoding.UTF8.GetBytes(CrearContenidoDescarga(informe));
 
                 return File(bytes, contentType, nombreArchivo);
             }
@@ -64,14 +69,15 @@ namespace TuTicketAPI.Controllers
 
         private bool ValidarFormato(string formato)
         {
-            if (string.Equals(formato, "markdown", StringComparison.OrdinalIgnoreCase) ||
+            if (EsFormatoPdf(formato) ||
+                string.Equals(formato, "markdown", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(formato, "md", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(formato, "txt", StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }
 
-            ModelState.AddModelError(nameof(formato), "El formato debe ser markdown, md o txt.");
+            ModelState.AddModelError(nameof(formato), "El formato debe ser pdf, markdown, md o txt.");
             return false;
         }
 
@@ -112,14 +118,29 @@ namespace TuTicketAPI.Controllers
 
         private static string ObtenerExtension(string formato)
         {
+            if (EsFormatoPdf(formato))
+            {
+                return "pdf";
+            }
+
             return string.Equals(formato, "txt", StringComparison.OrdinalIgnoreCase) ? "txt" : "md";
         }
 
         private static string ObtenerContentType(string formato)
         {
+            if (EsFormatoPdf(formato))
+            {
+                return "application/pdf";
+            }
+
             return string.Equals(formato, "txt", StringComparison.OrdinalIgnoreCase)
                 ? "text/plain; charset=utf-8"
                 : "text/markdown; charset=utf-8";
+        }
+
+        private static bool EsFormatoPdf(string formato)
+        {
+            return string.Equals(formato, "pdf", StringComparison.OrdinalIgnoreCase);
         }
     }
 }

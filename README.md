@@ -8,7 +8,7 @@ API REST para gestion de tickets de soporte. Incluye autenticacion JWT con ASP.N
 - Control de acceso por roles para `Administrador`, `ResolvedorTicket` y `Solicitante`.
 - Mantenedores para catalogos, equipos, responsables, flujo de estados, SLA y administracion de usuarios.
 - Dashboard con endpoints para graficos operativos y seguimiento de soporte.
-- Generacion de informe mensual inteligente con IA usando Gemini, basado en tickets historicos, cumplimiento SLA, categorias criticas, problemas recurrentes, comentarios y recomendaciones de mejora.
+- Generacion de informe mensual inteligente con IA usando Gemini, basado en tickets historicos, cumplimiento SLA, categorias criticas, problemas recurrentes, comentarios y recomendaciones de mejora, descargable como PDF profesional.
 
 ## Stack
 
@@ -19,6 +19,7 @@ API REST para gestion de tickets de soporte. Incluye autenticacion JWT con ASP.N
 - ASP.NET Core Identity
 - JWT Bearer Authentication
 - AutoMapper
+- QuestPDF
 - Swagger / OpenAPI
 
 ## Estructura principal
@@ -323,15 +324,22 @@ Todos respetan permisos por rol y visibilidad de tickets.
 Controller: `InformeIaSoporteController`
 
 - `GET /api/InformeIaSoporte/mensual/descargar`
-  - Genera y descarga un informe mensual inteligente de soporte con IA.
+  - Genera y descarga un informe mensual inteligente de soporte con IA en PDF profesional.
   - Analiza tickets del periodo, volumen por categoria/subcategoria, SLA, tiempos de respuesta/resolucion, comentarios, problemas recurrentes y responsables.
   - Entrega un resumen ejecutivo con hallazgos, riesgos operativos y recomendaciones accionables para mejorar la atencion de soporte.
+  - Responde `application/pdf` cuando se usa el formato por defecto.
   - Protegido solo para `Administrador`.
   - Parametros:
     - `anio`
     - `mes`
     - `limiteTicketsMuestra`
-    - `formato`: `markdown`, `md` o `txt`
+    - `formato`: opcional, `pdf` por defecto. Tambien acepta `markdown`, `md` o `txt`.
+
+Ejemplo:
+
+```http
+GET /api/InformeIaSoporte/mensual/descargar?anio=2026&mes=5
+```
 
 Servicios internos:
 
@@ -339,6 +347,8 @@ Servicios internos:
   - Genera el contexto mensual estructurado para alimentar una IA: metricas, rankings, problemas recurrentes, comentarios frecuentes, muestra de tickets, prompt de sistema, prompt de usuario y payload para Gemini.
 - `GeminiInformeIaGeneracionService`
   - Envia el contexto a Gemini y obtiene el informe generado.
+- `InformeIaPdfService`
+  - Transforma el informe generado por IA en un PDF profesional con KPIs, datos clave, resumen ejecutivo y paginacion.
 
 La generacion usa la API de Gemini mediante `generateContent`. El contexto y el prompt se preparan en servicios separados para mantener la logica de negocio fuera del controller.
 
@@ -381,6 +391,8 @@ Varios mantenedores incluyen endpoints `select` para alimentar formularios del f
   - Construye el contexto mensual, prompt y payload para generar informes ejecutivos con IA.
 - `GeminiInformeIaGeneracionService`
   - Se comunica con Gemini, envia el contexto mensual y obtiene el informe ejecutivo generado.
+- `InformeIaPdfService`
+  - Genera el archivo PDF descargable del informe ejecutivo IA.
 
 ## Reglas importantes de negocio
 
@@ -410,7 +422,7 @@ Varios mantenedores incluyen endpoints `select` para alimentar formularios del f
 - La descarga de adjuntos valida que la ruta fisica este dentro de la carpeta `Uploads`.
 - Las bitacoras pueden ser internas o visibles segun el campo `EsInterno`.
 - Las notificaciones automaticas de tickets se crean para el usuario asignado y no para el usuario que ejecuta el cambio.
-- Los informes IA mensuales se generan desde un servicio interno, se alimentan solo con datos del periodo solicitado y entregan un prompt listo para `gemini-3.1-flash-lite`.
+- Los informes IA mensuales se generan desde servicios internos, se alimentan solo con datos del periodo solicitado, usan `gemini-3.1-flash-lite` y se descargan como PDF profesional.
 - Los solicitantes solo pueden ver informacion de sus propios tickets.
 - Los resolvedores ven tickets asignados y tickets permitidos por la relacion categoria/equipo soporte.
 - El administrador puede consultar y operar sobre toda la informacion protegida.

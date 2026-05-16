@@ -4,12 +4,15 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using QuestPDF.Infrastructure;
 using TuTicketAPI.Models;
 using TuTicketAPI.Services.Common;
 using TuTicketAPI.Services.Informes;
 using TuTicketAPI.Services.Tickets;
 
 var builder = WebApplication.CreateBuilder(args);
+
+QuestPDF.Settings.License = LicenseType.Community;
 
 // DbContext
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
@@ -73,6 +76,7 @@ builder.Services.AddScoped<ITicketAttachmentService, TicketAttachmentService>();
 builder.Services.AddScoped<ITicketHistoryService, TicketHistoryService>();
 builder.Services.AddScoped<ITicketNotificationService, TicketNotificationService>();
 builder.Services.AddScoped<IInformeIaSoporteService, InformeIaSoporteService>();
+builder.Services.AddScoped<IInformeIaPdfService, InformeIaPdfService>();
 builder.Services.AddHttpClient<IInformeIaGeneracionService, GeminiInformeIaGeneracionService>((serviceProvider, httpClient) =>
 {
     var options = serviceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<GoogleGeminiOptions>>().Value;
